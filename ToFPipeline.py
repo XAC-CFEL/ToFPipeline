@@ -694,7 +694,7 @@ class PeakFinder(Configurable):
                 return peaks
         
             results_det = xr.apply_ufunc(
-                peakFuncWithCoords,
+                peakFunc,
                 sliceDet,
                 input_core_dims=[["sample"]],
                 vectorize=True,
