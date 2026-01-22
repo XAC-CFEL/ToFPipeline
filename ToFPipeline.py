@@ -759,7 +759,7 @@ class PeakFinder(Configurable):
         plt.savefig("traces.png",dpi=600)
         return self
     
-    def plotSingle(self, trainIndex=None, pulseIndex=None, ToF=0, xmin=None, xmax=None, ymin=None, ymax=None, logScale=True):
+    def plotSingle(self, trainIndex=None, pulseIndex=None, ToF=0, xmin=None, xmax=None, ymin=None, ymax=None, figsize=(12, 8), logScale=True, showGaussianFit=False):
 
         train_ids = self.data.indexes["pulse"].get_level_values("trainId")
         pulse_ids = self.data.indexes["pulse"].get_level_values("pulseId")
@@ -772,17 +772,18 @@ class PeakFinder(Configurable):
         
         print(f"Plotting trainId: {trainId}, pulseId: {pulseId}, ToF: {ToF}")
 
-        fig, ax = plt.subplots(1, 1, figsize=(12, 8))
+        fig, ax = plt.subplots(1, 1, figsize=figsize)
         
         if ymax is None:
             ymax = self.data.max() * 1.05
         
         trace = self.data.sel(detector=ToF, pulse={"trainId": trainId, "pulseId": pulseId})
+        sample_coords = self.data['sample'].values
         ax.set_title(f"ToF: {ToF}")
         ax.set_ylabel('Signal')
         ax.set_xlabel('Sample')
         ax.grid(True)
-        ax.plot(trace, marker='.', color='teal', markersize=0, alpha=1, linewidth=1)
+        ax.plot(trace, marker='.', color='teal', markersize=0, alpha=1, linewidth=1, label='Data')
         
         if logScale:
             ax.set_yscale('symlog', linthresh=1e-2)
@@ -791,17 +792,46 @@ class PeakFinder(Configurable):
         ax.set_xlim([xmin, xmax])
         
         try:
+            if not isinstance(self.results, pd.DataFrame):
+                print("Warning: results is not a DataFrame. Call .dataframe() first.")
+                return self
+                
             for peakNo in self.results["peakNo"].unique():
                 peak = self.results[(self.results["detector"]==ToF)&(self.results["peakNo"]==peakNo)&(self.results["trainId"]==trainId)&(self.results["pulseId"]==pulseId)]
+                if peak.empty:
+                    continue
                 pos = peak["pos"].iloc[0]
                 height = peak["height"].iloc[0]
                 widthl = peak["width left"].iloc[0]
                 widthr = peak["width right"].iloc[0]
-                ax.hlines(y=height/2, xmin=pos+widthl, xmax=pos+widthr, colors="red")
-                ax.scatter(x=pos, y=height, color="red")
-        except:
-            print("Found no peaks in ToF", ToF)
+                ax.hlines(y=height/2, xmin=pos+widthl, xmax=pos+widthr, colors="red", label='FWHM' if peakNo == 0 else '')
+                ax.scatter(x=pos, y=height, color="red", label='Peak' if peakNo == 0 else '')
+                
+                # Plot Gaussian fit if available and requested
+                if showGaussianFit:
+                    if 'gauss_amplitude' in peak.columns:
+                        if not pd.isna(peak['gauss_amplitude'].iloc[0]):
+                            amp = peak['gauss_amplitude'].iloc[0]
+                            center = peak['gauss_center'].iloc[0]
+                            sigma = peak['gauss_sigma'].iloc[0]
+                            
+                            # Generate points for smooth Gaussian curve around the fitted center
+                            x_range = max(abs(widthl), abs(widthr)) * 3
+                            x_fit = np.linspace(center - x_range, center + x_range, 200)
+                            y_fit = amp * np.exp(-((x_fit - center)**2) / (2 * sigma**2))
+                            
+                            ax.plot(x_fit, y_fit, color='orange', linewidth=2, linestyle='--', 
+                                   label='Gaussian Fit' if peakNo == 0 else '')
+                        else:
+                            if peakNo == 0:
+                                print(f"Gaussian fit parameters are NaN for peak {peakNo}")
+                    else:
+                        if peakNo == 0:
+                            print("Gaussian fit columns not found. Run .fitGaussians() first.")
+        except Exception as e:
+            print(f"Error plotting ToF {ToF}: {e}")
         
+        ax.legend()
         plt.savefig("traces.png", dpi=600)
         return self
 
@@ -851,6 +881,116 @@ class PeakFinder(Configurable):
     
         self.results = df
         return self
+
+    def fitGaussians(self, useUpperHalf=True, roiWidthMultiplier=None, roiAbsolute=None):
+        """
+        Fit Gaussian functions to each detected peak.
+        
+        Parameters
+        ----------
+        useUpperHalf : bool, optional
+            If True, only fit data above FWHM (half-height) to avoid background noise.
+            Default is True.
+        roiWidthMultiplier : float, optional
+            Multiplier for the detected peak width to define the fitting ROI.
+            For example, 2.0 means fit region extends 2x the peak width on each side.
+            If None, uses 2.0 for useUpperHalf=True, 1.0 for useUpperHalf=False.
+        roiAbsolute : tuple or list, optional
+            Absolute ROI as (left_offset, right_offset) from peak center in sample units.
+            If provided, overrides roiWidthMultiplier. Example: (-50, 50) for ±50 samples.
+            
+        Returns
+        -------
+        self : PeakFinder
+            Returns self with Gaussian fit parameters added to self.results DataFrame.
+            Adds columns: 'gauss_amplitude', 'gauss_center', 'gauss_sigma'
+        """
+        if not isinstance(self.results, pd.DataFrame):
+            raise ValueError("Must call .dataframe() before fitting Gaussians")
+        
+        # Set default ROI multiplier
+        if roiWidthMultiplier is None:
+            roiWidthMultiplier = 2.0 if useUpperHalf else 1.0
+        
+        # Initialize columns for Gaussian parameters
+        self.results['gauss_amplitude'] = np.nan
+        self.results['gauss_center'] = np.nan
+        self.results['gauss_sigma'] = np.nan
+        
+        # Define Gaussian function
+        def gaussian(x, amplitude, center, sigma):
+            return amplitude * np.exp(-((x - center)**2) / (2 * sigma**2))
+        
+        # Iterate through each peak
+        for idx, row in self.results.iterrows():
+            try:
+                # Get the trace for this peak
+                trace = self.data.sel(
+                    detector=row['detector'],
+                    pulse={"trainId": row['trainId'], "pulseId": row['pulseId']}
+                ).values
+                
+                sample_coords = self.data['sample'].values
+                pos = int(row['pos'])
+                height = row['height']
+                width_left = int(row['width left'])
+                width_right = int(row['width right'])
+                
+                # Find actual position in sample_coords array
+                pos_idx = np.searchsorted(sample_coords, pos)
+                
+                # Determine fitting region
+                if roiAbsolute is not None:
+                    # Use absolute ROI offsets
+                    left_offset = roiAbsolute[0]
+                    right_offset = roiAbsolute[1]
+                    fit_start = max(0, pos_idx + int(left_offset))
+                    fit_end = min(len(trace), pos_idx + int(right_offset))
+                else:
+                    # Use width multiplier
+                    fit_start = max(0, pos_idx + int(width_left * roiWidthMultiplier))
+                    fit_end = min(len(trace), pos_idx + int(width_right * roiWidthMultiplier))
+                
+                if useUpperHalf:
+                    # Only use data above half-maximum
+                    half_height = height / 2
+                    
+                    # Get data in the region
+                    region_data = trace[fit_start:fit_end]
+                    region_samples = sample_coords[fit_start:fit_end]
+                    
+                    # Only keep points above half-height
+                    mask = region_data >= half_height
+                    if np.sum(mask) < 3:  # Need at least 3 points to fit
+                        continue
+                    
+                    x_data = region_samples[mask]
+                    y_data = region_data[mask]
+                else:
+                    # Use full region data
+                    x_data = sample_coords[fit_start:fit_end]
+                    y_data = trace[fit_start:fit_end]
+                
+                if len(x_data) < 3:
+                    continue
+                
+                # Initial guess for parameters
+                p0 = [height, pos, abs(width_right - width_left) / 2.355]  # FWHM ≈ 2.355 * sigma
+                
+                # Fit Gaussian
+                popt, _ = curve_fit(gaussian, x_data, y_data, p0=p0, maxfev=5000)
+                
+                # Store fit parameters
+                self.results.at[idx, 'gauss_amplitude'] = popt[0]
+                self.results.at[idx, 'gauss_center'] = popt[1]
+                self.results.at[idx, 'gauss_sigma'] = popt[2]
+                
+            except Exception as e:
+                # If fit fails, leave as NaN
+                continue
+        
+        return self
+
 class AuxFunc:
     def __init__(self, data):
         self.data = data
