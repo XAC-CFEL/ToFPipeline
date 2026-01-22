@@ -809,22 +809,58 @@ class PeakFinder(Configurable):
                 
                 # Plot Gaussian fit if available and requested
                 if showGaussianFit:
-                    if 'gauss_amplitude' in peak.columns:
-                        if not pd.isna(peak['gauss_amplitude'].iloc[0]):
-                            amp = peak['gauss_amplitude'].iloc[0]
-                            center = peak['gauss_center'].iloc[0]
-                            sigma = peak['gauss_sigma'].iloc[0]
-                            
-                            # Generate points for smooth Gaussian curve around the fitted center
-                            x_range = max(abs(widthl), abs(widthr)) * 3
-                            x_fit = np.linspace(center - x_range, center + x_range, 200)
-                            y_fit = amp * np.exp(-((x_fit - center)**2) / (2 * sigma**2))
-                            
-                            ax.plot(x_fit, y_fit, color='orange', linewidth=2, linestyle='--', 
-                                   label='Gaussian Fit' if peakNo == 0 else '')
+                    # Define colors for multiple Gaussians
+                    gauss_colors = ['orange', 'purple', 'cyan', 'magenta', 'lime']
+                    
+                    # Check how many Gaussians were fitted for this peak
+                    gauss_count = 0
+                    for i in range(10):  # Check up to 10 Gaussians
+                        suffix = f"_{i+1}" if i > 0 else ""
+                        col_name = f'gauss{suffix}_amplitude'
+                        if col_name in peak.columns and not pd.isna(peak[col_name].iloc[0]):
+                            gauss_count += 1
                         else:
-                            if peakNo == 0:
-                                print(f"Gaussian fit parameters are NaN for peak {peakNo}")
+                            break
+                    
+                    if gauss_count > 0:
+                        # Determine common x_fit range for all Gaussians
+                        x_range = max(abs(widthl), abs(widthr)) * 3
+                        x_fit = np.linspace(pos - x_range, pos + x_range, 200)
+                        total_y_fit = np.zeros_like(x_fit)
+                        
+                        # Plot each Gaussian
+                        for i in range(gauss_count):
+                            suffix = f"_{i+1}" if i > 0 else ""
+                            amp = peak[f'gauss{suffix}_amplitude'].iloc[0]
+                            center = peak[f'gauss{suffix}_center'].iloc[0]
+                            sigma = peak[f'gauss{suffix}_sigma'].iloc[0]
+                            
+                            color = gauss_colors[i % len(gauss_colors)]
+                            
+                            # Calculate FWHM from Gaussian fit: FWHM = 2.355 * sigma
+                            fwhm_half = 1.177 * sigma
+                            label_fwhm = f'Gauss {i+1} FWHM' if gauss_count > 1 else 'Gauss FWHM'
+                            
+                            # Generate Gaussian curve using normalized form
+                            y_fit = amp * (1 / (sigma * np.sqrt(2 * np.pi))) * np.exp(-0.5 * ((x_fit - center) / sigma)**2)
+                            
+                            # Calculate peak height for FWHM line
+                            peak_height = amp * (1 / (sigma * np.sqrt(2 * np.pi)))
+                            ax.hlines(y=peak_height/2, xmin=center-fwhm_half, xmax=center+fwhm_half, 
+                                     colors=color, linestyle="-", linewidth=2, alpha=0.7,
+                                     label=label_fwhm if peakNo == 0 else '')
+                            
+                            label_fit = f'Gauss {i+1}' if gauss_count > 1 else 'Gaussian Fit'
+                            ax.plot(x_fit, y_fit, color=color, linewidth=2, alpha=0.7, linestyle='--', 
+                                   label=label_fit if peakNo == 0 else '')
+                            
+                            # Accumulate for total curve
+                            total_y_fit += y_fit
+                        
+                        # Plot sum of all Gaussians if multiple
+                        if gauss_count > 1:
+                            ax.plot(x_fit, total_y_fit, color='black', linewidth=2.5, linestyle='-', 
+                                   label='Total Fit' if peakNo == 0 else '', alpha=0.8)
                     else:
                         if peakNo == 0:
                             print("Gaussian fit columns not found. Run .fitGaussians() first.")
@@ -882,7 +918,7 @@ class PeakFinder(Configurable):
         self.results = df
         return self
 
-    def fitGaussians(self, useUpperHalf=True, roiWidthMultiplier=None, roiAbsolute=None):
+    def fitGaussians(self, useUpperHalf=True, roiWidthMultiplier=None, roiAbsolute=None, multiGauss=None):
         """
         Fit Gaussian functions to each detected peak.
         
@@ -898,12 +934,17 @@ class PeakFinder(Configurable):
         roiAbsolute : tuple or list, optional
             Absolute ROI as (left_offset, right_offset) from peak center in sample units.
             If provided, overrides roiWidthMultiplier. Example: (-50, 50) for ±50 samples.
+        multiGauss : list or array, optional
+            Number of Gaussians to fit for each peakNo. 
+            Example: [1, 2, 1] means fit 1 Gaussian for peak 0, 2 Gaussians for peak 1, 1 Gaussian for peak 2.
+            If None, fits single Gaussian to all peaks.
             
         Returns
         -------
         self : PeakFinder
             Returns self with Gaussian fit parameters added to self.results DataFrame.
-            Adds columns: 'gauss_amplitude', 'gauss_center', 'gauss_sigma'
+            Adds columns: 'gauss_amplitude', 'gauss_center', 'gauss_sigma', 'gauss_area', 'gauss_fwhm_area'
+            For multi-Gaussian fits, adds: 'gauss_1_amplitude', 'gauss_1_center', etc.
         """
         if not isinstance(self.results, pd.DataFrame):
             raise ValueError("Must call .dataframe() before fitting Gaussians")
@@ -912,18 +953,47 @@ class PeakFinder(Configurable):
         if roiWidthMultiplier is None:
             roiWidthMultiplier = 2.0 if useUpperHalf else 1.0
         
-        # Initialize columns for Gaussian parameters
-        self.results['gauss_amplitude'] = np.nan
-        self.results['gauss_center'] = np.nan
-        self.results['gauss_sigma'] = np.nan
+        # Determine max number of Gaussians needed for column creation
+        max_gaussians = 1
+        if multiGauss is not None:
+            max_gaussians = max(multiGauss)
         
-        # Define Gaussian function
+        # Initialize columns for Gaussian parameters
+        for i in range(max_gaussians):
+            suffix = f"_{i+1}" if i > 0 else ""
+            self.results[f'gauss{suffix}_amplitude'] = np.nan
+            self.results[f'gauss{suffix}_center'] = np.nan
+            self.results[f'gauss{suffix}_sigma'] = np.nan
+            self.results[f'gauss{suffix}_area'] = np.nan
+            self.results[f'gauss{suffix}_fwhm_area'] = np.nan
+        self.results['gauss_fwhm_area'] = np.nan
+        
+        # Define Gaussian functions using normalized form
         def gaussian(x, amplitude, center, sigma):
-            return amplitude * np.exp(-((x - center)**2) / (2 * sigma**2))
+            """Single Gaussian with amplitude parameter"""
+            return amplitude * (1 / (sigma * np.sqrt(2 * np.pi))) * np.exp(-0.5 * ((x - center) / sigma)**2)
+        
+        def multi_gaussian(x, *params):
+            """Sum of multiple normalized Gaussians. Params: [amp1, center1, sigma1, amp2, center2, sigma2, ...]"""
+            n_gaussians = len(params) // 3
+            result = np.zeros_like(x, dtype=float)
+            for i in range(n_gaussians):
+                amp = params[i*3]
+                center = params[i*3 + 1]
+                sigma = params[i*3 + 2]
+                result += amp * (1 / (sigma * np.sqrt(2 * np.pi))) * np.exp(-0.5 * ((x - center) / sigma)**2)
+            return result
         
         # Iterate through each peak
         for idx, row in self.results.iterrows():
             try:
+                # Determine number of Gaussians for this peak
+                peak_no = int(row['peakNo'])
+                if multiGauss is not None and peak_no < len(multiGauss):
+                    n_gaussians = multiGauss[peak_no]
+                else:
+                    n_gaussians = 1
+                
                 # Get the trace for this peak
                 trace = self.data.sel(
                     detector=row['detector'],
@@ -971,19 +1041,73 @@ class PeakFinder(Configurable):
                     x_data = sample_coords[fit_start:fit_end]
                     y_data = trace[fit_start:fit_end]
                 
-                if len(x_data) < 3:
+                if len(x_data) < 3 * n_gaussians:  # Need enough points for all Gaussians
                     continue
                 
-                # Initial guess for parameters
-                p0 = [height, pos, abs(width_right - width_left) / 2.355]  # FWHM ≈ 2.355 * sigma
+                # Create initial guess
+                if n_gaussians == 1:
+                    # Single Gaussian
+                    p0 = [height, pos, abs(width_right - width_left) / 2.355]
+                    popt, _ = curve_fit(gaussian, x_data, y_data, p0=p0, maxfev=5000)
+                    params_list = [popt]
+                else:
+                    # Multiple Gaussians - distribute across the peak region
+                    # For multi-Gaussian, use full region data (not upper half only)
+                    x_data_full = sample_coords[fit_start:fit_end]
+                    y_data_full = trace[fit_start:fit_end]
+                    
+                    p0 = []
+                    bounds_lower = []
+                    bounds_upper = []
+                    
+                    sigma_guess = abs(width_right - width_left) / (2.355 * n_gaussians)
+                    region_width = x_data_full[-1] - x_data_full[0]
+                    
+                    for i in range(n_gaussians):
+                        # Distribute centers evenly across the peak
+                        center_offset = (i - (n_gaussians-1)/2) * (region_width / (n_gaussians + 1))
+                        p0.extend([height / n_gaussians, pos + center_offset, sigma_guess])
+                        
+                        # Set bounds for each Gaussian
+                        # Amplitude: 0 to 1.5*height (some wiggle room)
+                        # Center: within the fitting region
+                        # Sigma: positive, not too large
+                        bounds_lower.extend([0, x_data_full[0], sigma_guess * 0.1])
+                        bounds_upper.extend([height * 1.5, x_data_full[-1], abs(region_width)])
+                    
+                    # Fit multiple Gaussians with bounds
+                    try:
+                        popt, _ = curve_fit(multi_gaussian, x_data_full, y_data_full, 
+                                           p0=p0, bounds=(bounds_lower, bounds_upper), maxfev=10000)
+                    except:
+                        # If bounded fit fails, try without bounds
+                        popt, _ = curve_fit(multi_gaussian, x_data_full, y_data_full, 
+                                           p0=p0, maxfev=10000)
+                    
+                    # Split parameters into separate Gaussians
+                    params_list = []
+                    for i in range(n_gaussians):
+                        params_list.append(popt[i*3:(i+1)*3])
                 
-                # Fit Gaussian
-                popt, _ = curve_fit(gaussian, x_data, y_data, p0=p0, maxfev=5000)
-                
-                # Store fit parameters
-                self.results.at[idx, 'gauss_amplitude'] = popt[0]
-                self.results.at[idx, 'gauss_center'] = popt[1]
-                self.results.at[idx, 'gauss_sigma'] = popt[2]
+                # Store fit parameters for each Gaussian
+                from scipy.special import erf
+                for i, params in enumerate(params_list):
+                    suffix = f"_{i+1}" if i > 0 else ""
+                    amp, center, sigma = params
+                    
+                    self.results.at[idx, f'gauss{suffix}_amplitude'] = amp
+                    self.results.at[idx, f'gauss{suffix}_center'] = center
+                    self.results.at[idx, f'gauss{suffix}_sigma'] = sigma
+                    
+                    # Calculate Gaussian area
+                    gauss_area = amp * sigma * np.sqrt(2 * np.pi)
+                    self.results.at[idx, f'gauss{suffix}_area'] = gauss_area
+                    
+                    # Calculate area within FWHM boundaries
+                    fwhm_half = 1.177 * sigma
+                    erf_arg = fwhm_half / (sigma * np.sqrt(2))
+                    gauss_fwhm_area = amp * sigma * np.sqrt(2 * np.pi) * erf(erf_arg)
+                    self.results.at[idx, f'gauss{suffix}_fwhm_area'] = gauss_fwhm_area
                 
             except Exception as e:
                 # If fit fails, leave as NaN
