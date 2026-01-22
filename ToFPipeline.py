@@ -758,6 +758,52 @@ class PeakFinder(Configurable):
             j+=1
         plt.savefig("traces.png",dpi=600)
         return self
+    
+    def plotSingle(self, trainIndex=None, pulseIndex=None, ToF=0, xmin=None, xmax=None, ymin=None, ymax=None, logScale=True):
+
+        train_ids = self.data.indexes["pulse"].get_level_values("trainId")
+        pulse_ids = self.data.indexes["pulse"].get_level_values("pulseId")
+        
+        randomTrainId = np.random.choice(train_ids)
+        randomPulseId = np.random.choice(pulse_ids)
+        
+        trainId = trainIndex if trainIndex is not None else self.config.get("plotTrainIndex", randomTrainId)
+        pulseId = pulseIndex if pulseIndex is not None else self.config.get("plotPulseIndex", randomPulseId)
+        
+        print(f"Plotting trainId: {trainId}, pulseId: {pulseId}, ToF: {ToF}")
+
+        fig, ax = plt.subplots(1, 1, figsize=(12, 8))
+        
+        if ymax is None:
+            ymax = self.data.max() * 1.05
+        
+        trace = self.data.sel(detector=ToF, pulse={"trainId": trainId, "pulseId": pulseId})
+        ax.set_title(f"ToF: {ToF}")
+        ax.set_ylabel('Signal')
+        ax.set_xlabel('Sample')
+        ax.grid(True)
+        ax.plot(trace, marker='.', color='teal', markersize=0, alpha=1, linewidth=1)
+        
+        if logScale:
+            ax.set_yscale('symlog', linthresh=1e-2)
+        
+        ax.set_ylim([ymin, ymax])
+        ax.set_xlim([xmin, xmax])
+        
+        try:
+            for peakNo in self.results["peakNo"].unique():
+                peak = self.results[(self.results["detector"]==ToF)&(self.results["peakNo"]==peakNo)&(self.results["trainId"]==trainId)&(self.results["pulseId"]==pulseId)]
+                pos = peak["pos"].iloc[0]
+                height = peak["height"].iloc[0]
+                widthl = peak["width left"].iloc[0]
+                widthr = peak["width right"].iloc[0]
+                ax.hlines(y=height/2, xmin=pos+widthl, xmax=pos+widthr, colors="red")
+                ax.scatter(x=pos, y=height, color="red")
+        except:
+            print("Found no peaks in ToF", ToF)
+        
+        plt.savefig("traces.png", dpi=600)
+        return self
 
 
     def dataframe(self):
