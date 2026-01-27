@@ -810,7 +810,7 @@ class PeakFinder(Configurable):
                 # Plot Gaussian fit if available and requested
                 if showGaussianFit:
                     # Define colors for multiple Gaussians
-                    gauss_colors = ['orange', 'purple', 'cyan', 'magenta', 'lime']
+                    gauss_colors = ['orange', 'purple', 'blue', 'magenta', 'lime']
                     
                     # Check how many Gaussians were fitted for this peak
                     gauss_count = 0
@@ -841,12 +841,11 @@ class PeakFinder(Configurable):
                             fwhm_half = 1.177 * sigma
                             label_fwhm = f'Gauss {i+1} FWHM' if gauss_count > 1 else 'Gauss FWHM'
                             
-                            # Generate Gaussian curve using normalized form
-                            y_fit = amp * (1 / (sigma * np.sqrt(2 * np.pi))) * np.exp(-0.5 * ((x_fit - center) / sigma)**2)
+                            # Generate Gaussian curve where amp is peak height
+                            y_fit = amp * np.exp(-0.5 * ((x_fit - center) / sigma)**2)
                             
-                            # Calculate peak height for FWHM line
-                            peak_height = amp * (1 / (sigma * np.sqrt(2 * np.pi)))
-                            ax.hlines(y=peak_height/2, xmin=center-fwhm_half, xmax=center+fwhm_half, 
+                            # FWHM line at half the peak height
+                            ax.hlines(y=amp/2, xmin=center-fwhm_half, xmax=center+fwhm_half, 
                                      colors=color, linestyle="-", linewidth=2, alpha=0.7,
                                      label=label_fwhm if peakNo == 0 else '')
                             
@@ -918,7 +917,7 @@ class PeakFinder(Configurable):
         self.results = df
         return self
 
-    def fitGaussians(self, useUpperHalf=True, roiWidthMultiplier=None, roiAbsolute=None, multiGauss=None):
+    def fitGaussians(self, useUpperHalf=True, roiWidthMultiplier=None, roiAbsolute=None, multiGauss=None, baseline=None):
         """
         Fit Gaussian functions to each detected peak.
         
@@ -931,6 +930,7 @@ class PeakFinder(Configurable):
             Multiplier for the detected peak width to define the fitting ROI.
             For example, 2.0 means fit region extends 2x the peak width on each side.
             If None, uses 2.0 for useUpperHalf=True, 1.0 for useUpperHalf=False.
+            For multi-Gaussian fits, consider using larger values (e.g., 4.0) to capture shoulders.
         roiAbsolute : tuple or list, optional
             Absolute ROI as (left_offset, right_offset) from peak center in sample units.
             If provided, overrides roiWidthMultiplier. Example: (-50, 50) for ±50 samples.
@@ -938,6 +938,11 @@ class PeakFinder(Configurable):
             Number of Gaussians to fit for each peakNo. 
             Example: [1, 2, 1] means fit 1 Gaussian for peak 0, 2 Gaussians for peak 1, 1 Gaussian for peak 2.
             If None, fits single Gaussian to all peaks.
+        baseline : tuple or list, optional
+            Baseline correction specified as two sample positions [left_sample, right_sample].
+            A linear baseline is drawn between these two points and subtracted before fitting.
+            Example: [100, 300] draws baseline from sample 100 to sample 300.
+            Useful for peaks with shoulders or asymmetric background.
             
         Returns
         -------
@@ -968,20 +973,20 @@ class PeakFinder(Configurable):
             self.results[f'gauss{suffix}_fwhm_area'] = np.nan
         self.results['gauss_fwhm_area'] = np.nan
         
-        # Define Gaussian functions using normalized form
+        # Define Gaussian functions where amplitude = peak height
         def gaussian(x, amplitude, center, sigma):
-            """Single Gaussian with amplitude parameter"""
-            return amplitude * (1 / (sigma * np.sqrt(2 * np.pi))) * np.exp(-0.5 * ((x - center) / sigma)**2)
+            """Single Gaussian where amplitude is the peak height"""
+            return amplitude * np.exp(-0.5 * ((x - center) / sigma)**2)
         
         def multi_gaussian(x, *params):
-            """Sum of multiple normalized Gaussians. Params: [amp1, center1, sigma1, amp2, center2, sigma2, ...]"""
+            """Sum of multiple Gaussians. Params: [amp1, center1, sigma1, amp2, center2, sigma2, ...]"""
             n_gaussians = len(params) // 3
             result = np.zeros_like(x, dtype=float)
             for i in range(n_gaussians):
                 amp = params[i*3]
                 center = params[i*3 + 1]
                 sigma = params[i*3 + 2]
-                result += amp * (1 / (sigma * np.sqrt(2 * np.pi))) * np.exp(-0.5 * ((x - center) / sigma)**2)
+                result += amp * np.exp(-0.5 * ((x - center) / sigma)**2)
             return result
         
         # Iterate through each peak
@@ -1021,12 +1026,31 @@ class PeakFinder(Configurable):
                     fit_start = max(0, pos_idx + int(width_left * roiWidthMultiplier))
                     fit_end = min(len(trace), pos_idx + int(width_right * roiWidthMultiplier))
                 
+                # Apply baseline correction if specified
+                trace_corrected = trace.copy()
+                if baseline is not None:
+                    baseline_left, baseline_right = baseline
+                    # Find indices for baseline points
+                    left_idx = np.searchsorted(sample_coords, baseline_left)
+                    right_idx = np.searchsorted(sample_coords, baseline_right)
+                    
+                    # Get baseline values at the two points
+                    left_val = trace[left_idx]
+                    right_val = trace[right_idx]
+                    
+                    # Create linear baseline
+                    baseline_slope = (right_val - left_val) / (sample_coords[right_idx] - sample_coords[left_idx])
+                    baseline_line = left_val + baseline_slope * (sample_coords - sample_coords[left_idx])
+                    
+                    # Subtract baseline
+                    trace_corrected = trace - baseline_line
+                
                 if useUpperHalf:
                     # Only use data above half-maximum
                     half_height = height / 2
                     
                     # Get data in the region
-                    region_data = trace[fit_start:fit_end]
+                    region_data = trace_corrected[fit_start:fit_end]
                     region_samples = sample_coords[fit_start:fit_end]
                     
                     # Only keep points above half-height
@@ -1039,7 +1063,7 @@ class PeakFinder(Configurable):
                 else:
                     # Use full region data
                     x_data = sample_coords[fit_start:fit_end]
-                    y_data = trace[fit_start:fit_end]
+                    y_data = trace_corrected[fit_start:fit_end]
                 
                 if len(x_data) < 3 * n_gaussians:  # Need enough points for all Gaussians
                     continue
@@ -1054,35 +1078,49 @@ class PeakFinder(Configurable):
                     # Multiple Gaussians - distribute across the peak region
                     # For multi-Gaussian, use full region data (not upper half only)
                     x_data_full = sample_coords[fit_start:fit_end]
-                    y_data_full = trace[fit_start:fit_end]
+                    y_data_full = trace_corrected[fit_start:fit_end]
                     
                     p0 = []
                     bounds_lower = []
                     bounds_upper = []
                     
-                    sigma_guess = abs(width_right - width_left) / (2.355 * n_gaussians)
+                    # Better sigma guess: divide peak width by number of Gaussians
+                    sigma_guess = abs(width_right - width_left) / (2.355 * max(n_gaussians, 1))
                     region_width = x_data_full[-1] - x_data_full[0]
+                    
+                    # Improved amplitude guess: distribute amplitude based on n_gaussians
+                    # For 3+ Gaussians, assume middle ones might be stronger
+                    amp_guess = height / max(n_gaussians * 0.8, 1)
                     
                     for i in range(n_gaussians):
                         # Distribute centers evenly across the peak
-                        center_offset = (i - (n_gaussians-1)/2) * (region_width / (n_gaussians + 1))
-                        p0.extend([height / n_gaussians, pos + center_offset, sigma_guess])
+                        if n_gaussians == 1:
+                            center_offset = 0
+                        else:
+                            # Spread centers across the region
+                            center_offset = (i - (n_gaussians-1)/2) * (region_width / (n_gaussians + 1))
+                        
+                        p0.extend([amp_guess, pos + center_offset, sigma_guess])
                         
                         # Set bounds for each Gaussian
-                        # Amplitude: 0 to 1.5*height (some wiggle room)
+                        # Amplitude: 0 to 2*height to allow flexibility
                         # Center: within the fitting region
-                        # Sigma: positive, not too large
+                        # Sigma: minimum 10% of guess, max entire region
                         bounds_lower.extend([0, x_data_full[0], sigma_guess * 0.1])
-                        bounds_upper.extend([height * 1.5, x_data_full[-1], abs(region_width)])
+                        bounds_upper.extend([height * 2.0, x_data_full[-1], abs(region_width)])
                     
                     # Fit multiple Gaussians with bounds
                     try:
                         popt, _ = curve_fit(multi_gaussian, x_data_full, y_data_full, 
-                                           p0=p0, bounds=(bounds_lower, bounds_upper), maxfev=10000)
+                                           p0=p0, bounds=(bounds_lower, bounds_upper), maxfev=15000)
                     except:
                         # If bounded fit fails, try without bounds
-                        popt, _ = curve_fit(multi_gaussian, x_data_full, y_data_full, 
-                                           p0=p0, maxfev=10000)
+                        try:
+                            popt, _ = curve_fit(multi_gaussian, x_data_full, y_data_full, 
+                                               p0=p0, maxfev=15000)
+                        except:
+                            # If all else fails, skip this peak
+                            continue
                     
                     # Split parameters into separate Gaussians
                     params_list = []
@@ -1099,7 +1137,7 @@ class PeakFinder(Configurable):
                     self.results.at[idx, f'gauss{suffix}_center'] = center
                     self.results.at[idx, f'gauss{suffix}_sigma'] = sigma
                     
-                    # Calculate Gaussian area
+                    # Calculate Gaussian area: for exp(-0.5*(x-c)^2/s^2), area = amp * sigma * sqrt(2*pi)
                     gauss_area = amp * sigma * np.sqrt(2 * np.pi)
                     self.results.at[idx, f'gauss{suffix}_area'] = gauss_area
                     
