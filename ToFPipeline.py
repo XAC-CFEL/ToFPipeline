@@ -1428,7 +1428,9 @@ class Fitter(Configurable):
             ax.set_theta_zero_location("E")  # 0° at top
             ax.set_theta_direction(1)       # clockwise
             ax.legend(loc="lower right")
+            plt.savefig("pol.png", dpi=600)
             plt.show()
+            
         return popt,pcov
 
 class StreamTracePlotter:
