@@ -657,12 +657,15 @@ class PeakFinder(Configurable):
         self.data = self.data.persist()
         return self
     
-    def process(self, threshold=None, peakNo=None,roi=None, distanceFactor=None, symmetric=None, minWidth=True):
+    def process(self, threshold=None, peakNo=None,roi=None, distanceFactor=None, symmetric=None, minWidth=True, slopeLength=None, maxSlope=None):
         threshold = threshold if threshold is not None else self.config.get("threshold", 0)
         peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 8)
         roi = roi if roi is not None else self.config.get("roi", [None,None])
         distanceFactor = distanceFactor if distanceFactor is not None else self.config.get("distanceFactor", 2)
         symmetric = symmetric if symmetric is not None else self.config.get("symmetric", True)
+        slopeLength = slopeLength if slopeLength is not None else self.config.get("slopeLength", 4)
+        maxSlope = maxSlope if maxSlope is not None else self.config.get("maxSlope", 1)
+
         
         peakFunc = partial(
             findPeaksInTrace_np,
@@ -670,7 +673,9 @@ class PeakFinder(Configurable):
             cutOff=threshold,
             widthFactor=distanceFactor,
             symmetric=symmetric,
-            minWidth=minWidth
+            minWidth=minWidth,
+            slopeLength=slopeLength,
+            maxSlope=maxSlope
         )
     
         results_list = []
@@ -804,9 +809,12 @@ class PeakFinder(Configurable):
                 height = peak["height"].iloc[0]
                 widthl = peak["width left"].iloc[0]
                 widthr = peak["width right"].iloc[0]
+                baselineL = peak["baseline left"].iloc[0]
+                baselineR = peak["baseline right"].iloc[0]
                 ax.hlines(y=height/2, xmin=pos+widthl, xmax=pos+widthr, colors="red", label='FWHM' if peakNo == 0 else '')
                 ax.scatter(x=pos, y=height, color="red", label='Peak' if peakNo == 0 else '')
-                
+                if baselineL is not False:
+                    ax.plot([int(baselineL), int(baselineR)], [trace[int(baselineL)], trace[int(baselineR)]], color="green", linestyle='--', label='Baseline' if peakNo == 0 else '')
                 # Plot Gaussian fit if available and requested
                 if showGaussianFit:
                     # Define colors for multiple Gaussians
@@ -897,7 +905,7 @@ class PeakFinder(Configurable):
     
         if len(all_results) == 0:
             self.results = pd.DataFrame(
-                columns=["detector","trainId","pulseId","peakNo","pos","height","width left","width right","fwhm area"]
+                columns=["detector","trainId","pulseId","peakNo","pos","height","width left","width right","fwhm area","baseline left","baseline right"]
             )
             return self
     
@@ -908,7 +916,7 @@ class PeakFinder(Configurable):
         # create DataFrame
         df = pd.DataFrame(
             np.hstack([all_metadata, all_results]),
-            columns=["detector","trainId","pulseId","peakNo","pos","height","width left","width right","fwhm area"]
+            columns=["detector","trainId","pulseId","peakNo","pos","height","width left","width right","fwhm area","baseline left","baseline right"]
         )
     
         # convert appropriate columns to int
@@ -1654,6 +1662,7 @@ def findPeak(trace, widthFactor=2, symmetric = False):
     '''
     trace = trace.copy()
     peak = trace.argmax()
+    trace, baselinePointL, baselinePointR = findPeakBaseline(trace,peak)
     height = trace.max()
     if symmetric == True:
         peakWidthL, peakWidthR = findSymmetricPeakWidth(trace,peak)
@@ -1661,7 +1670,38 @@ def findPeak(trace, widthFactor=2, symmetric = False):
         peakWidthL, peakWidthR = findAsymmetricPeakWidth(trace,peak)
         
     trace[peak+(peakWidthL*widthFactor):peak+(peakWidthR*widthFactor)] = 0
-    return trace, peak, height, peakWidthL, peakWidthR
+    return trace, peak, height, peakWidthL, peakWidthR, baselinePointL, baselinePointR
+
+def findPeakBaseline(trace, peak, slopeLength=5, maxSlope=4):
+    i = 0
+    slope = trace[peak + i] - trace[peak - slopeLength + i]
+    baselinePointL = peak
+    while slope > maxSlope and i > -40:
+        baselinePointL = peak - slopeLength + i
+        i -= 1
+        slope = trace[peak + i] - trace[peak - slopeLength + i]
+        
+        
+    j = 0
+    slope = trace[peak + slopeLength + j] - trace[peak + j]
+    baselinePointR = peak
+    while -slope > maxSlope and j < 40:
+        baselinePointR = peak + slopeLength + j
+        j += 1
+        slope = trace[peak + slopeLength + j] - trace[peak + j]
+        
+        
+
+    slope = (trace[peak+j] - trace[peak+i]) / (peak+j - (peak+i))
+    offset = trace[peak+i] - slope*(peak + i)
+
+    baseline = slope * np.arange(0,peak+j) + offset
+
+    for k in range(peak + i, peak + j):
+        #trace[peak-i:peak+j] = trace[peak-i:peak+j] - baseline[peak-i:peak+j]
+        trace[k] = trace[k] - baseline[k]
+        
+    return trace, int(baselinePointL), int(baselinePointR)
 
 def findPeaksInTrace(trace, peakNo , cutOff = -100, widthFactor=2, symmetric = True):
     results = []
@@ -1669,23 +1709,28 @@ def findPeaksInTrace(trace, peakNo , cutOff = -100, widthFactor=2, symmetric = T
     if traceCopy.max() > cutOff:
         for i in range(peakNo+1):
             if traceCopy.max() > cutOff:
-                traceCopy, pos, height, widthL, widthR = findPeak(traceCopy, widthFactor=widthFactor, symmetric = symmetric)
+                traceCopy, pos, height, widthL, widthR, baselinePointL, baselinePointR = findPeak(traceCopy, widthFactor=widthFactor, symmetric = symmetric)
                 a = trace[pos+widthL:pos+widthR].sum()
-                results.append([pos,height,widthL,widthR,a])
+                results.append([pos,height,widthL,widthR,a, baselinePointL, baselinePointR])
     if len(results) == peakNo+1:
         results.sort()
-        resultsDicts = [{"pos": p, "height": h, "width left": wl, "width right":wr, "fwhm area": a} for p, h, wl, wr, a in results]
+        resultsDicts = [{"pos": p, "height": h, "width left": wl, "width right":wr, "fwhm area": a, "baseline left": bl, "baseline right": br} for p, h, wl, wr, a, bl, br in results]
     else:
         resultsDicts = None
     return resultsDicts
 
-def findPeak_np(trace, widthFactor=2, symmetric=False, maxWidth=20, minWidth=False):
+def findPeak_np(trace, widthFactor=2, symmetric=False, maxWidth=20, minWidth=False,slopeLength=5, maxSlope=4):
     """
     Find the largest peak in a trace and compute FWHM widths.
     Returns trace with peak zeroed, peak position, height, left width, right width.
     """
     trace = trace.copy()
     peak = trace.argmax()
+    if slopeLength or maxSlope is not False:
+        trace, baselineL, baselineR = findPeakBaseline(trace,peak,slopeLength=slopeLength, maxSlope=maxSlope)
+    else:
+        baselineL = None
+        baselineR = None
     height = trace[peak]
 
     # Slice around peak
@@ -1719,19 +1764,19 @@ def findPeak_np(trace, widthFactor=2, symmetric=False, maxWidth=20, minWidth=Fal
     area = trace[start:stop].sum()
     trace[start_zero:stop_zero] = 0
 
-    return trace, peak, height, widthL, widthR, area
+    return trace, peak, height, widthL, widthR, area, baselineL, baselineR
 
-def findPeaksInTrace_np(trace, peakNo, cutOff=-100, widthFactor=2, symmetric=True, maxWidth=30, minWidth=False):
+def findPeaksInTrace_np(trace, peakNo, cutOff=-100, widthFactor=2, symmetric=True, maxWidth=30, minWidth=False,slopeLength=5, maxSlope=4):
     results = []
 
     traceCopy = trace.copy()
     for _ in range(peakNo+1):
         if traceCopy.max() <= cutOff:
             break
-        traceCopy, pos, height, widthL, widthR, area = findPeak_np(
-            traceCopy, widthFactor=widthFactor, symmetric=symmetric, maxWidth=maxWidth,minWidth=minWidth)
+        traceCopy, pos, height, widthL, widthR, area, baselineL, baselineR = findPeak_np(
+            traceCopy, widthFactor=widthFactor, symmetric=symmetric, maxWidth=maxWidth,minWidth=minWidth,slopeLength=slopeLength, maxSlope=maxSlope)
 
-        results.append([pos, height, widthL, widthR, area])
+        results.append([pos, height, widthL, widthR, area, baselineL, baselineR])
 
     if len(results) == peakNo + 1:
         results_arr = np.array(results, dtype=float)
@@ -1740,6 +1785,7 @@ def findPeaksInTrace_np(trace, peakNo, cutOff=-100, widthFactor=2, symmetric=Tru
     
     return None  # Explicitly return None if no peaks found
 
+"""
 def findPeaksInTrace_sp(trace, peakNo, cutOff=0, widthFactor=2, symmetric=False, maxWidth=20):
     results = []
 
@@ -1766,11 +1812,12 @@ def findPeaksInTrace_sp(trace, peakNo, cutOff=0, widthFactor=2, symmetric=False,
             area = trace[peak+widthL:peak+widthR].sum()
             i+=1
         
-            results.append([peak, height, widthL, widthR, area])
+            results.append([peak, height, widthL, widthR, area, baselineL, baselineR])
 
         results_arr = np.array(results, dtype=float)
         sorted_indices = np.argsort(results_arr[:, 0])  # sort by pos
         return results_arr[sorted_indices]
+"""
 
 def negExpFunc(x, a, b, c):
     return a * np.exp(-b * x) + c
