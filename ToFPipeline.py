@@ -307,7 +307,12 @@ class NXSLoader(Loader):
         # Set up detector angles if provided in config
         fullTheta = np.array(self.config.get("angles", np.linspace(0, 360, 16, endpoint=False)))
         detectors = self.config.get("ToF",[1])
-        theta = fullTheta[detectors]
+        if len(fullTheta) == len(detectors):
+            # Angles already correspond 1:1 to the selected detectors
+            theta = fullTheta
+        else:
+            # Angles is a full set — index by detector number
+            theta = fullTheta[detectors]
         self.angles = pd.DataFrame(detectors, columns=["detector"])
         self.angles["Angles"] = theta
     
