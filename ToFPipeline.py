@@ -657,7 +657,7 @@ class PeakFinder(Configurable):
         self.data = self.data.persist()
         return self
     
-    def process(self, threshold=None, peakNo=None,roi=None, distanceFactor=None, symmetric=None, minWidth=True, slopeLength=None, maxSlope=None):
+    def process(self, threshold=None, peakNo=None,roi=None, distanceFactor=None, symmetric=None, minWidth=True, slopeLength=None, maxSlope=None, slopeStartHeight=None):
         threshold = threshold if threshold is not None else self.config.get("threshold", 0)
         peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 8)
         roi = roi if roi is not None else self.config.get("roi", [None,None])
@@ -675,7 +675,8 @@ class PeakFinder(Configurable):
             symmetric=symmetric,
             minWidth=minWidth,
             slopeLength=slopeLength,
-            maxSlope=maxSlope
+            maxSlope=maxSlope,
+            slopeStartHeight=slopeStartHeight
         )
     
         results_list = []
@@ -1787,19 +1788,26 @@ def findPeak(trace, widthFactor=2, symmetric = False):
     trace[peak+(peakWidthL*widthFactor):peak+(peakWidthR*widthFactor)] = 0
     return trace, peak, height, peakWidthL, peakWidthR, baselinePointL, baselinePointR
 
-def findPeakBaseline(trace, peak, slopeLength=5, maxSlope=4):
+def findPeakBaseline(trace, peak, slopeLength=5, maxSlope=4, startOffsetL=0, startOffsetR=0):
     """
     Find baseline endpoint indices around a peak by walking the slope.
     
     Walks left and right from the peak until the slope drops below maxSlope.
     Returns the trace (unmodified) and the two baseline endpoint indices.
     The caller is responsible for computing and subtracting the baseline.
+    
+    Parameters
+    ----------
+    startOffsetL : int
+        Negative offset from peak to start the left walk (e.g. from FWHM left edge).
+    startOffsetR : int
+        Positive offset from peak to start the right walk (e.g. from FWHM right edge).
     """
     n = len(trace)
     
     # Walk left to find baseline start point
-    i = 0
-    baselinePointL = peak
+    i = startOffsetL  # start from peak (0) or from FWHM left edge (negative)
+    baselinePointL = max(0, peak + startOffsetL)
     while i > -100:
         idxCurrent = peak + i
         idxLeft = peak - slopeLength + i
@@ -1813,8 +1821,8 @@ def findPeakBaseline(trace, peak, slopeLength=5, maxSlope=4):
         i -= 1
     
     # Walk right to find baseline end point
-    j = 0
-    baselinePointR = peak
+    j = startOffsetR  # start from peak (0) or from FWHM right edge (positive)
+    baselinePointR = min(n - 1, peak + startOffsetR)
     while j < 100:
         idxCurrent = peak + j
         idxRight = peak + slopeLength + j
@@ -1853,11 +1861,18 @@ def findPeaksInTrace(trace, peakNo , cutOff = -100, widthFactor=2, symmetric = T
         resultsDicts = None
     return resultsDicts
 
-def findPeak_np(trace, widthFactor=2, symmetric=False, maxWidth=20, minWidth=False,slopeLength=5, maxSlope=4, originalTrace=None):
+def findPeak_np(trace, widthFactor=2, symmetric=False, maxWidth=20, minWidth=False,slopeLength=5, maxSlope=4, originalTrace=None, slopeStartHeight=None):
     """
     Find the largest peak in a trace and compute FWHM widths.
     Uses originalTrace (unzeroed) for baseline detection and peak analysis.
     The zeroed 'trace' is only used for iterative peak finding (argmax) and zeroing.
+    
+    Parameters
+    ----------
+    slopeStartHeight : float or None
+        Fraction of peak height at which the baseline slope walk starts.
+        E.g. 0.5 starts at FWHM edges, 0.8 starts where trace is at 80% of peak height.
+        None (default) starts the walk from the peak center.
     Returns trace with peak zeroed, peak position, height, left width, right width.
     """
     trace = trace.copy()
@@ -1870,8 +1885,26 @@ def findPeak_np(trace, widthFactor=2, symmetric=False, maxWidth=20, minWidth=Fal
         analysisTrace = trace.copy()
     
     if slopeLength or maxSlope is not False:
+        # If slopeStartHeight is set, find where the trace crosses that fraction of peak height
+        startOffsetL = 0
+        startOffsetR = 0
+        if slopeStartHeight is not None:
+            rawHeight = analysisTrace[peak]
+            if rawHeight > 0:
+                threshold = rawHeight * slopeStartHeight
+                left_sl = analysisTrace[max(0, peak-maxWidth):peak+1][::-1]
+                right_sl = analysisTrace[peak:peak+maxWidth+1]
+                prelim_wR = np.argmax(right_sl < threshold)
+                if prelim_wR == 0 and right_sl[0] >= threshold:
+                    prelim_wR = min(maxWidth, len(right_sl)-1)
+                prelim_wL = -np.argmax(left_sl < threshold)
+                if prelim_wL == 0 and left_sl[0] >= threshold:
+                    prelim_wL = -min(maxWidth, len(left_sl)-1)
+                startOffsetL = prelim_wL  # negative
+                startOffsetR = prelim_wR  # positive
+        
         # Use the original unzeroed trace for baseline slope analysis
-        _, baselineL, baselineR = findPeakBaseline(analysisTrace, peak, slopeLength=slopeLength, maxSlope=maxSlope)
+        _, baselineL, baselineR = findPeakBaseline(analysisTrace, peak, slopeLength=slopeLength, maxSlope=maxSlope, startOffsetL=startOffsetL, startOffsetR=startOffsetR)
         # Apply baseline subtraction to the analysis trace
         if baselineL is not False and baselineR is not False:
             blSlope = (analysisTrace[baselineR] - analysisTrace[baselineL]) / (baselineR - baselineL)
@@ -1918,7 +1951,7 @@ def findPeak_np(trace, widthFactor=2, symmetric=False, maxWidth=20, minWidth=Fal
 
     return trace, peak, height, widthL, widthR, area, baselineL, baselineR
 
-def findPeaksInTrace_np(trace, peakNo, cutOff=-100, widthFactor=2, symmetric=True, maxWidth=30, minWidth=False,slopeLength=5, maxSlope=4):
+def findPeaksInTrace_np(trace, peakNo, cutOff=-100, widthFactor=2, symmetric=True, maxWidth=30, minWidth=False,slopeLength=5, maxSlope=4, slopeStartHeight=None):
     results = []
 
     originalTrace = trace.copy()  # Keep intact copy for baseline detection
@@ -1927,7 +1960,7 @@ def findPeaksInTrace_np(trace, peakNo, cutOff=-100, widthFactor=2, symmetric=Tru
         if traceCopy.max() <= cutOff:
             break
         traceCopy, pos, height, widthL, widthR, area, baselineL, baselineR = findPeak_np(
-            traceCopy, widthFactor=widthFactor, symmetric=symmetric, maxWidth=maxWidth,minWidth=minWidth,slopeLength=slopeLength, maxSlope=maxSlope, originalTrace=originalTrace)
+            traceCopy, widthFactor=widthFactor, symmetric=symmetric, maxWidth=maxWidth,minWidth=minWidth,slopeLength=slopeLength, maxSlope=maxSlope, originalTrace=originalTrace, slopeStartHeight=slopeStartHeight)
 
         results.append([pos, height, widthL, widthR, area, baselineL, baselineR])
 
