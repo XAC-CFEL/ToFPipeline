@@ -739,14 +739,24 @@ class PeakFinder(Configurable):
         if ymax is None:
             ymax = self.data.max() * 1.05
         
-        # Define colors for multiple Gaussians
-        gaussColors = ['orange', 'purple', 'blue', 'magenta', 'lime']
+        # Define Paul Tol's bright color palette for colorblind-friendly plots
+        tolBlue = '#4477AA'
+        tolCyan = '#66CCEE'
+        tolGreen = '#228833'
+        tolYellow = '#CCBB44'
+        tolRed = '#EE6677'
+        tolPurple = '#AA3377'
+        tolGrey = '#BBBBBB'
+        tolBlack = '#000000'
+        
+        # Define colors for multiple Gaussians using Tol palette
+        gaussColors = [tolCyan, tolYellow, tolPurple, tolGrey, tolGreen]
         
         for ToF in self.data["detector"].to_index():
             trace = self.data.sel(detector=ToF,pulse={"trainId": trainId, "pulseId": pulseId})
             ax[j].set_title(f"ToF: {ToF}")
             ax[j].grid(True)
-            ax[j].plot(trace,marker='.', color = 'teal',  markersize=0 ,alpha=1,linewidth = 1)
+            ax[j].plot(trace,marker='.', color = tolBlue,  markersize=0 ,alpha=1,linewidth = 1)
             if logScale:
                 #trace = np.clip(trace,1e-12,None)
                 ax[j].set_yscale('symlog', linthresh=1e-2)
@@ -765,15 +775,15 @@ class PeakFinder(Configurable):
                 height = peak["height"].iloc[0]
                 widthl = peak["width left"].iloc[0]
                 widthr = peak["width right"].iloc[0]
-                ax[j].hlines(y=height/2, xmin=pos+widthl, xmax=pos+widthr, colors="red")
-                ax[j].scatter(x=pos,y=height,color="red")
+                ax[j].hlines(y=height/2, xmin=pos+widthl, xmax=pos+widthr, colors=tolPurple)
+                ax[j].scatter(x=pos,y=height,color=tolPurple)
                 
                 # Plot baseline if available
                 if "baseline left" in peak.columns and "baseline right" in peak.columns:
                     baselineL = peak["baseline left"].iloc[0]
                     baselineR = peak["baseline right"].iloc[0]
                     if baselineL is not False and not pd.isna(baselineL) and not pd.isna(baselineR):
-                        ax[j].plot([int(baselineL), int(baselineR)], [trace[int(baselineL)], trace[int(baselineR)]], color="green", linestyle='--')
+                        ax[j].plot([int(baselineL), int(baselineR)], [trace[int(baselineL)], trace[int(baselineR)]], color=tolGreen, linestyle='--')
                         baselineAdjustedTrace = trace.to_numpy().copy()
 
                         baselineSlope = (trace[int(baselineR)] - trace[int(baselineL)]) / (baselineR - baselineL)
@@ -784,7 +794,7 @@ class PeakFinder(Configurable):
                         
                         baselineX = np.arange(int(baselineL), int(baselineR)+1)
                         baselineAdjustedTrace = baselineAdjustedTrace[int(baselineL):int(baselineR)+1]
-                        ax[j].plot(baselineX, baselineAdjustedTrace, color="green", linestyle='dotted', label='Baseline Adjusted' if peakNo == 0 else '',alpha=0.7)
+                        ax[j].plot(baselineX, baselineAdjustedTrace, color=tolGreen, linestyle='dotted', label='Baseline Adjusted' if peakNo == 0 else '',alpha=0.7)
                 
                 # Plot Gaussian fit if available and requested
                 if showGaussianFit:
@@ -830,7 +840,7 @@ class PeakFinder(Configurable):
                         
                         # Plot sum of all Gaussians if multiple
                         if gaussCount > 1:
-                            ax[j].plot(xFit, totalYFit, color='black', linewidth=2.5, linestyle='-', alpha=0.8)
+                            ax[j].plot(xFit, totalYFit, color=tolBlack, linewidth=2.5, linestyle='-', alpha=0.8)
             j+=1
         plt.savefig("traces.png",dpi=600)
         return self
@@ -853,13 +863,23 @@ class PeakFinder(Configurable):
         if ymax is None:
             ymax = self.data.max() * 1.05
         
+        # Define Paul Tol's bright color palette for colorblind-friendly plots
+        tolBlue = '#4477AA'
+        tolCyan = '#66CCEE'
+        tolGreen = '#228833'
+        tolYellow = '#CCBB44'
+        tolRed = '#EE6677'
+        tolPurple = '#AA3377'
+        tolGrey = '#BBBBBB'
+        tolBlack = '#000000'
+        
         trace = self.data.sel(detector=ToF, pulse={"trainId": trainId, "pulseId": pulseId})
         sample_coords = self.data['sample'].values
         ax.set_title(f"ToF: {ToF}")
         ax.set_ylabel('Signal')
         ax.set_xlabel('Sample')
         ax.grid(True)
-        ax.plot(trace, marker='.', color='teal', markersize=0, alpha=1, linewidth=1, label='Data')
+        ax.plot(trace, marker='.', color=tolBlue, markersize=0, alpha=1, linewidth=1, label='Data')
         
         if logScale:
             ax.set_yscale('symlog', linthresh=1e-2)
@@ -882,10 +902,10 @@ class PeakFinder(Configurable):
                 widthr = peak["width right"].iloc[0]
                 baselineL = int(peak["baseline left"].iloc[0])
                 baselineR = int(peak["baseline right"].iloc[0])
-                ax.hlines(y=height/2, xmin=pos+widthl, xmax=pos+widthr, colors="red", label='FWHM' if peakNo == 0 else '')
-                ax.scatter(x=pos, y=height, color="red", label='Peak' if peakNo == 0 else '')
+                ax.hlines(y=height/2, xmin=pos+widthl, xmax=pos+widthr, colors=tolPurple, label='FWHM' if peakNo == 0 else '')
+                ax.scatter(x=pos, y=height, color=tolPurple, label='Peak' if peakNo == 0 else '')
                 if baselineL is not False and not pd.isna(baselineL) and not pd.isna(baselineR):
-                    ax.plot([int(baselineL), int(baselineR)], [trace[int(baselineL)], trace[int(baselineR)]], color="green", linestyle='--', label='Baseline' if peakNo == 0 else '')
+                    ax.plot([int(baselineL), int(baselineR)], [trace[int(baselineL)], trace[int(baselineR)]], color=tolGreen, linestyle='--', label='Baseline' if peakNo == 0 else '')
                     baselineAdjustedTrace = trace.to_numpy().copy()
                         # Compute linear baseline: y = slope * x + offset
                     baselineSlope = (trace[baselineR] - trace[baselineL]) / (baselineR - baselineL)
@@ -896,11 +916,11 @@ class PeakFinder(Configurable):
                         baselineAdjustedTrace[k] = baselineAdjustedTrace[k] - (baselineSlope * k + offset)
                     baselineX = np.arange(baselineL, baselineR+1)
                     baselineAdjustedTrace = baselineAdjustedTrace[int(baselineL):int(baselineR)+1]
-                    ax.plot(baselineX, baselineAdjustedTrace, color="green", linestyle='dotted', label='Baseline Adjusted' if peakNo == 0 else '',alpha=0.7)
+                    ax.plot(baselineX, baselineAdjustedTrace, color=tolGreen, linestyle='dotted', label='Baseline Adjusted' if peakNo == 0 else '',alpha=0.7)
                 # Plot Gaussian fit if available and requested
                 if showGaussianFit:
-                    # Define colors for multiple Gaussians
-                    gauss_colors = ['orange', 'purple', 'blue', 'magenta', 'lime']
+                    # Define colors for multiple Gaussians using Tol palette
+                    gauss_colors = [tolCyan, tolYellow, tolPurple, tolGrey, tolGreen]
                     
                     # Check how many Gaussians were fitted for this peak
                     gauss_count = 0
@@ -948,7 +968,7 @@ class PeakFinder(Configurable):
                         
                         # Plot sum of all Gaussians if multiple
                         if gauss_count > 1:
-                            ax.plot(x_fit, total_y_fit, color='black', linewidth=2.5, linestyle='-', 
+                            ax.plot(x_fit, total_y_fit, color=tolBlack, linewidth=2.5, linestyle='-', 
                                    label='Total Fit' if peakNo == 0 else '', alpha=0.8)
                     else:
                         if peakNo == 0:
