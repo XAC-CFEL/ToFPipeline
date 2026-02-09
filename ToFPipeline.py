@@ -663,8 +663,8 @@ class PeakFinder(Configurable):
         roi = roi if roi is not None else self.config.get("roi", [None,None])
         distanceFactor = distanceFactor if distanceFactor is not None else self.config.get("distanceFactor", 2)
         symmetric = symmetric if symmetric is not None else self.config.get("symmetric", True)
-        slopeLength = slopeLength if slopeLength is not None else self.config.get("slopeLength", 4)
-        maxSlope = maxSlope if maxSlope is not None else self.config.get("maxSlope", 1)
+        slopeLength = slopeLength if slopeLength is not None else self.config.get("slopeLength", False)
+        maxSlope = maxSlope if maxSlope is not None else self.config.get("maxSlope", False)
 
         
         peakFunc = partial(
@@ -714,7 +714,7 @@ class PeakFinder(Configurable):
         return self
 
 
-    def plot(self, trainIndex=None, pulseIndex=None, num=None, xmin=None, xmax=None, ymin=None, ymax=None, logScale=True):
+    def plot(self, trainIndex=None, pulseIndex=None, num=None, xmin=None, xmax=None, ymin=None, ymax=None, logScale=True, showGaussianFit=False):
 
         train_ids = self.data.indexes["pulse"].get_level_values("trainId")
         pulse_ids = self.data.indexes["pulse"].get_level_values("pulseId")
@@ -739,6 +739,9 @@ class PeakFinder(Configurable):
         if ymax is None:
             ymax = self.data.max() * 1.05
         
+        # Define colors for multiple Gaussians
+        gaussColors = ['orange', 'purple', 'blue', 'magenta', 'lime']
+        
         for ToF in self.data["detector"].to_index():
             trace = self.data.sel(detector=ToF,pulse={"trainId": trainId, "pulseId": pulseId})
             ax[j].set_title(f"ToF: {ToF}")
@@ -749,22 +752,90 @@ class PeakFinder(Configurable):
                 ax[j].set_yscale('symlog', linthresh=1e-2)
             ax[j].set_ylim([ymin, ymax])
             ax[j].set_xlim([xmin, xmax])
-            try:
-                for peakNo in self.results["peakNo"].unique():
-                    peak = self.results[(self.results["detector"]==ToF)&(self.results["peakNo"]==peakNo)&(self.results["trainId"]==trainId)&(self.results["pulseId"]==pulseId)]
-                    pos = peak["pos"].iloc[0]
-                    height = peak["height"].iloc[0]
-                    widthl = peak["width left"].iloc[0]
-                    widthr = peak["width right"].iloc[0]
-                    ax[j].hlines(y=height/2, xmin=pos+widthl, xmax=pos+widthr, colors="red")
-                    ax[j].scatter(x=pos,y=height,color="red")
-            except:
-                print("Found no peaks in ToF ",ToF)
+            if not isinstance(self.results, pd.DataFrame):
+                print("Warning: results is not a DataFrame. Call .dataframe() first.")
+                j += 1
+                continue
+                
+            for peakNo in self.results["peakNo"].unique():
+                peak = self.results[(self.results["detector"]==ToF)&(self.results["peakNo"]==peakNo)&(self.results["trainId"]==trainId)&(self.results["pulseId"]==pulseId)]
+                if peak.empty:
+                    continue
+                pos = peak["pos"].iloc[0]
+                height = peak["height"].iloc[0]
+                widthl = peak["width left"].iloc[0]
+                widthr = peak["width right"].iloc[0]
+                ax[j].hlines(y=height/2, xmin=pos+widthl, xmax=pos+widthr, colors="red")
+                ax[j].scatter(x=pos,y=height,color="red")
+                
+                # Plot baseline if available
+                if "baseline left" in peak.columns and "baseline right" in peak.columns:
+                    baselineL = peak["baseline left"].iloc[0]
+                    baselineR = peak["baseline right"].iloc[0]
+                    if baselineL is not False and not pd.isna(baselineL) and not pd.isna(baselineR):
+                        ax[j].plot([int(baselineL), int(baselineR)], [trace[int(baselineL)], trace[int(baselineR)]], color="green", linestyle='--')
+                        baselineAdjustedTrace = trace.to_numpy().copy()
+
+                        baselineSlope = (trace[int(baselineR)] - trace[int(baselineL)]) / (baselineR - baselineL)
+                        offset = trace[int(baselineL)] - baselineSlope * baselineL
+                        
+                        for k in range(int(baselineL), int(baselineR) + 1):
+                            baselineAdjustedTrace[k] = baselineAdjustedTrace[k] - (baselineSlope * k + offset)
+                        
+                        baselineX = np.arange(int(baselineL), int(baselineR)+1)
+                        baselineAdjustedTrace = baselineAdjustedTrace[int(baselineL):int(baselineR)+1]
+                        ax[j].plot(baselineX, baselineAdjustedTrace, color="green", linestyle='dotted', label='Baseline Adjusted' if peakNo == 0 else '',alpha=0.7)
+                
+                # Plot Gaussian fit if available and requested
+                if showGaussianFit:
+                    # Check how many Gaussians were fitted for this peak
+                    gaussCount = 0
+                    for i in range(10):  # Check up to 10 Gaussians
+                        suffix = f"_{i+1}" if i > 0 else ""
+                        colName = f'gauss{suffix}_amplitude'
+                        if colName in peak.columns and not pd.isna(peak[colName].iloc[0]):
+                            gaussCount += 1
+                        else:
+                            break
+                    
+                    if gaussCount > 0:
+                        # Determine common xFit range for all Gaussians
+                        xRange = max(abs(widthl), abs(widthr)) * 3
+                        xFit = np.linspace(pos - xRange, pos + xRange, 200)
+                        totalYFit = np.zeros_like(xFit)
+                        
+                        # Plot each Gaussian
+                        for i in range(gaussCount):
+                            suffix = f"_{i+1}" if i > 0 else ""
+                            amp = peak[f'gauss{suffix}_amplitude'].iloc[0]
+                            center = peak[f'gauss{suffix}_center'].iloc[0]
+                            sigma = peak[f'gauss{suffix}_sigma'].iloc[0]
+                            
+                            color = gaussColors[i % len(gaussColors)]
+                            
+                            # Calculate FWHM from Gaussian fit: FWHM = 2.355 * sigma
+                            fwhmHalf = 1.177 * sigma
+                            
+                            # Generate Gaussian curve where amp is peak height
+                            yFit = amp * np.exp(-0.5 * ((xFit - center) / sigma)**2)
+                            
+                            # FWHM line at half the peak height
+                            ax[j].hlines(y=amp/2, xmin=center-fwhmHalf, xmax=center+fwhmHalf, 
+                                     colors=color, linestyle="-", linewidth=2, alpha=0.7)
+                            
+                            ax[j].plot(xFit, yFit, color=color, linewidth=2, alpha=0.7, linestyle='--')
+                            
+                            # Accumulate for total curve
+                            totalYFit += yFit
+                        
+                        # Plot sum of all Gaussians if multiple
+                        if gaussCount > 1:
+                            ax[j].plot(xFit, totalYFit, color='black', linewidth=2.5, linestyle='-', alpha=0.8)
             j+=1
         plt.savefig("traces.png",dpi=600)
         return self
     
-    def plotSingle(self, trainIndex=None, pulseIndex=None, ToF=0, xmin=None, xmax=None, ymin=None, ymax=None, figsize=(12, 8), logScale=True, showGaussianFit=False):
+    def plotSingle(self, trainIndex=None, pulseIndex=None, ToF=0, xmin=None, xmax=None, ymin=None, ymax=None, figsize=(12, 8), logScale=False, showGaussianFit=False):
 
         train_ids = self.data.indexes["pulse"].get_level_values("trainId")
         pulse_ids = self.data.indexes["pulse"].get_level_values("pulseId")
@@ -809,12 +880,23 @@ class PeakFinder(Configurable):
                 height = peak["height"].iloc[0]
                 widthl = peak["width left"].iloc[0]
                 widthr = peak["width right"].iloc[0]
-                baselineL = peak["baseline left"].iloc[0]
-                baselineR = peak["baseline right"].iloc[0]
+                baselineL = int(peak["baseline left"].iloc[0])
+                baselineR = int(peak["baseline right"].iloc[0])
                 ax.hlines(y=height/2, xmin=pos+widthl, xmax=pos+widthr, colors="red", label='FWHM' if peakNo == 0 else '')
                 ax.scatter(x=pos, y=height, color="red", label='Peak' if peakNo == 0 else '')
-                if baselineL is not False:
+                if baselineL is not False and not pd.isna(baselineL) and not pd.isna(baselineR):
                     ax.plot([int(baselineL), int(baselineR)], [trace[int(baselineL)], trace[int(baselineR)]], color="green", linestyle='--', label='Baseline' if peakNo == 0 else '')
+                    baselineAdjustedTrace = trace.to_numpy().copy()
+                        # Compute linear baseline: y = slope * x + offset
+                    baselineSlope = (trace[baselineR] - trace[baselineL]) / (baselineR - baselineL)
+                    offset = trace[baselineL] - baselineSlope * baselineL
+                    
+                    # Subtract baseline only in the region around the peak
+                    for k in range(baselineL, baselineR + 1):
+                        baselineAdjustedTrace[k] = baselineAdjustedTrace[k] - (baselineSlope * k + offset)
+                    baselineX = np.arange(baselineL, baselineR+1)
+                    baselineAdjustedTrace = baselineAdjustedTrace[int(baselineL):int(baselineR)+1]
+                    ax.plot(baselineX, baselineAdjustedTrace, color="green", linestyle='dotted', label='Baseline Adjusted' if peakNo == 0 else '',alpha=0.7)
                 # Plot Gaussian fit if available and requested
                 if showGaussianFit:
                     # Define colors for multiple Gaussians
@@ -1664,6 +1746,7 @@ def findPeak(trace, widthFactor=2, symmetric = False):
     peak = trace.argmax()
     trace, baselinePointL, baselinePointR = findPeakBaseline(trace,peak)
     height = trace.max()
+ 
     if symmetric == True:
         peakWidthL, peakWidthR = findSymmetricPeakWidth(trace,peak)
     else:
@@ -1673,34 +1756,60 @@ def findPeak(trace, widthFactor=2, symmetric = False):
     return trace, peak, height, peakWidthL, peakWidthR, baselinePointL, baselinePointR
 
 def findPeakBaseline(trace, peak, slopeLength=5, maxSlope=4):
+    """
+    Estimate and subtract an angled baseline around a peak.
+    
+    Walks left and right from the peak until the slope drops below maxSlope,
+    then fits a linear baseline between those endpoints and subtracts it.
+    """
+    n = len(trace)
+    
+    # Walk left to find baseline start point
     i = 0
-    slope = trace[peak + i] - trace[peak - slopeLength + i]
     baselinePointL = peak
-    while slope > maxSlope and i > -40:
-        baselinePointL = peak - slopeLength + i
+    while i > -100:
+        idxCurrent = peak + i
+        idxLeft = peak - slopeLength + i
+        # Bounds check
+        if idxLeft < 0 or idxCurrent < 0:
+            break
+        slope = trace[idxCurrent] - trace[idxLeft]
+        if slope <= maxSlope:
+            break
+        baselinePointL = idxLeft
         i -= 1
-        slope = trace[peak + i] - trace[peak - slopeLength + i]
-        
-        
+    
+    # Walk right to find baseline end point
     j = 0
-    slope = trace[peak + slopeLength + j] - trace[peak + j]
     baselinePointR = peak
-    while -slope > maxSlope and j < 40:
-        baselinePointR = peak + slopeLength + j
+    while j < 100:
+        idxCurrent = peak + j
+        idxRight = peak + slopeLength + j
+        # Bounds check
+        if idxRight >= n or idxCurrent >= n:
+            break
+        slope = trace[idxRight] - trace[idxCurrent]
+        if -slope <= maxSlope:
+            break
+        baselinePointR = idxRight
         j += 1
-        slope = trace[peak + slopeLength + j] - trace[peak + j]
-        
-        
-
-    slope = (trace[peak+j] - trace[peak+i]) / (peak+j - (peak+i))
-    offset = trace[peak+i] - slope*(peak + i)
-
-    baseline = slope * np.arange(0,peak+j) + offset
-
-    for k in range(peak + i, peak + j):
-        #trace[peak-i:peak+j] = trace[peak-i:peak+j] - baseline[peak-i:peak+j]
-        trace[k] = trace[k] - baseline[k]
-        
+    
+    # Clamp final indices
+    idxL = max(0, peak + i)
+    idxR = min(n - 1, peak + j)
+    
+    # Avoid division by zero
+    if idxR == idxL:
+        return trace, int(baselinePointL), int(baselinePointR)
+    
+    # Compute linear baseline: y = slope * x + offset
+    baselineSlope = (trace[idxR] - trace[idxL]) / (idxR - idxL)
+    offset = trace[idxL] - baselineSlope * idxL
+    
+    # Subtract baseline only in the region around the peak
+    for k in range(baselinePointL, baselinePointR + 1):
+        trace[k] = trace[k] - (baselineSlope * k + offset)
+    
     return trace, int(baselinePointL), int(baselinePointR)
 
 def findPeaksInTrace(trace, peakNo , cutOff = -100, widthFactor=2, symmetric = True):
@@ -1732,6 +1841,7 @@ def findPeak_np(trace, widthFactor=2, symmetric=False, maxWidth=20, minWidth=Fal
         baselineL = None
         baselineR = None
     height = trace[peak]
+    
 
     # Slice around peak
     left_slice = trace[max(0, peak-maxWidth):peak+1][::-1]  # reverse for left
