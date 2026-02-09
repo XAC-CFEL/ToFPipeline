@@ -887,97 +887,103 @@ class PeakFinder(Configurable):
         ax.set_ylim([ymin, ymax])
         ax.set_xlim([xmin, xmax])
         
-        try:
-            if not isinstance(self.results, pd.DataFrame):
-                print("Warning: results is not a DataFrame. Call .dataframe() first.")
-                return self
-                
-            for peakNo in self.results["peakNo"].unique():
-                peak = self.results[(self.results["detector"]==ToF)&(self.results["peakNo"]==peakNo)&(self.results["trainId"]==trainId)&(self.results["pulseId"]==pulseId)]
-                if peak.empty:
-                    continue
-                pos = peak["pos"].iloc[0]
-                height = peak["height"].iloc[0]
-                widthl = peak["width left"].iloc[0]
-                widthr = peak["width right"].iloc[0]
-                baselineL = int(peak["baseline left"].iloc[0])
-                baselineR = int(peak["baseline right"].iloc[0])
-                ax.hlines(y=height/2, xmin=pos+widthl, xmax=pos+widthr, colors=tolPurple, label='FWHM' if peakNo == 0 else '')
-                ax.scatter(x=pos, y=height, color=tolPurple, label='Peak' if peakNo == 0 else '')
+        if not isinstance(self.results, pd.DataFrame):
+            print("Warning: results is not a DataFrame. Call .dataframe() first.")
+            ax.legend()
+            plt.savefig("traces.png", dpi=600)
+            return self
+            
+        for peakNo in self.results["peakNo"].unique():
+            peak = self.results[(self.results["detector"]==ToF)&(self.results["peakNo"]==peakNo)&(self.results["trainId"]==trainId)&(self.results["pulseId"]==pulseId)]
+            if peak.empty:
+                continue
+            pos = peak["pos"].iloc[0]
+            height = peak["height"].iloc[0]
+            widthl = peak["width left"].iloc[0]
+            widthr = peak["width right"].iloc[0]
+            baselineL = peak["baseline left"].iloc[0]
+            baselineR = peak["baseline right"].iloc[0]
+            ax.hlines(y=height/2, xmin=pos+widthl, xmax=pos+widthr, colors=tolRed, label='FWHM' if peakNo == 0 else '')
+            ax.scatter(x=pos, y=height, color=tolRed, label='Peak' if peakNo == 0 else '')
+            
+            # Plot baseline if available
+            if "baseline left" in peak.columns and "baseline right" in peak.columns:
                 if baselineL is not False and not pd.isna(baselineL) and not pd.isna(baselineR):
                     ax.plot([int(baselineL), int(baselineR)], [trace[int(baselineL)], trace[int(baselineR)]], color=tolGreen, linestyle='--', label='Baseline' if peakNo == 0 else '')
                     baselineAdjustedTrace = trace.to_numpy().copy()
-                        # Compute linear baseline: y = slope * x + offset
-                    baselineSlope = (trace[baselineR] - trace[baselineL]) / (baselineR - baselineL)
-                    offset = trace[baselineL] - baselineSlope * baselineL
+                    
+                    # Compute linear baseline: y = slope * x + offset
+                    baselineSlope = (trace[int(baselineR)] - trace[int(baselineL)]) / (baselineR - baselineL)
+                    offset = trace[int(baselineL)] - baselineSlope * baselineL
                     
                     # Subtract baseline only in the region around the peak
-                    for k in range(baselineL, baselineR + 1):
+                    for k in range(int(baselineL), int(baselineR) + 1):
                         baselineAdjustedTrace[k] = baselineAdjustedTrace[k] - (baselineSlope * k + offset)
-                    baselineX = np.arange(baselineL, baselineR+1)
+                    
+                    baselineX = np.arange(int(baselineL), int(baselineR)+1)
                     baselineAdjustedTrace = baselineAdjustedTrace[int(baselineL):int(baselineR)+1]
                     ax.plot(baselineX, baselineAdjustedTrace, color=tolGreen, linestyle='dotted', label='Baseline Adjusted' if peakNo == 0 else '',alpha=0.7)
-                # Plot Gaussian fit if available and requested
-                if showGaussianFit:
-                    # Define colors for multiple Gaussians using Tol palette
-                    gauss_colors = [tolCyan, tolYellow, tolPurple, tolGrey, tolGreen]
-                    
-                    # Check how many Gaussians were fitted for this peak
-                    gauss_count = 0
-                    for i in range(10):  # Check up to 10 Gaussians
-                        suffix = f"_{i+1}" if i > 0 else ""
-                        col_name = f'gauss{suffix}_amplitude'
-                        if col_name in peak.columns and not pd.isna(peak[col_name].iloc[0]):
-                            gauss_count += 1
-                        else:
-                            break
-                    
-                    if gauss_count > 0:
-                        # Determine common x_fit range for all Gaussians
-                        x_range = max(abs(widthl), abs(widthr)) * 3
-                        x_fit = np.linspace(pos - x_range, pos + x_range, 200)
-                        total_y_fit = np.zeros_like(x_fit)
-                        
-                        # Plot each Gaussian
-                        for i in range(gauss_count):
-                            suffix = f"_{i+1}" if i > 0 else ""
-                            amp = peak[f'gauss{suffix}_amplitude'].iloc[0]
-                            center = peak[f'gauss{suffix}_center'].iloc[0]
-                            sigma = peak[f'gauss{suffix}_sigma'].iloc[0]
-                            
-                            color = gauss_colors[i % len(gauss_colors)]
-                            
-                            # Calculate FWHM from Gaussian fit: FWHM = 2.355 * sigma
-                            fwhm_half = 1.177 * sigma
-                            label_fwhm = f'Gauss {i+1} FWHM' if gauss_count > 1 else 'Gauss FWHM'
-                            
-                            # Generate Gaussian curve where amp is peak height
-                            y_fit = amp * np.exp(-0.5 * ((x_fit - center) / sigma)**2)
-                            
-                            # FWHM line at half the peak height
-                            ax.hlines(y=amp/2, xmin=center-fwhm_half, xmax=center+fwhm_half, 
-                                     colors=color, linestyle="-", linewidth=2, alpha=0.7,
-                                     label=label_fwhm if peakNo == 0 else '')
-                            
-                            label_fit = f'Gauss {i+1}' if gauss_count > 1 else 'Gaussian Fit'
-                            ax.plot(x_fit, y_fit, color=color, linewidth=2, alpha=0.7, linestyle='--', 
-                                   label=label_fit if peakNo == 0 else '')
-                            
-                            # Accumulate for total curve
-                            total_y_fit += y_fit
-                        
-                        # Plot sum of all Gaussians if multiple
-                        if gauss_count > 1:
-                            ax.plot(x_fit, total_y_fit, color=tolBlack, linewidth=2.5, linestyle='-', 
-                                   label='Total Fit' if peakNo == 0 else '', alpha=0.8)
+            
+            # Plot Gaussian fit if available and requested
+            if showGaussianFit:
+                # Define colors for multiple Gaussians using Tol palette
+                gauss_colors = [tolCyan, tolYellow, tolPurple, tolGrey, tolGreen]
+                
+                # Check how many Gaussians were fitted for this peak
+                gauss_count = 0
+                for i in range(10):  # Check up to 10 Gaussians
+                    suffix = f"_{i+1}" if i > 0 else ""
+                    col_name = f'gauss{suffix}_amplitude'
+                    if col_name in peak.columns and not pd.isna(peak[col_name].iloc[0]):
+                        gauss_count += 1
                     else:
-                        if peakNo == 0:
-                            print("Gaussian fit columns not found. Run .fitGaussians() first.")
-        except Exception as e:
-            print(f"Error plotting ToF {ToF}: {e}")
+                        break
+                
+                if gauss_count > 0:
+                    # Determine common x_fit range for all Gaussians
+                    x_range = max(abs(widthl), abs(widthr)) * 3
+                    x_fit = np.linspace(pos - x_range, pos + x_range, 200)
+                    total_y_fit = np.zeros_like(x_fit)
+                    
+                    # Plot each Gaussian
+                    for i in range(gauss_count):
+                        suffix = f"_{i+1}" if i > 0 else ""
+                        amp = peak[f'gauss{suffix}_amplitude'].iloc[0]
+                        center = peak[f'gauss{suffix}_center'].iloc[0]
+                        sigma = peak[f'gauss{suffix}_sigma'].iloc[0]
+                        
+                        color = gauss_colors[i % len(gauss_colors)]
+                        
+                        # Calculate FWHM from Gaussian fit: FWHM = 2.355 * sigma
+                        fwhm_half = 1.177 * sigma
+                        label_fwhm = f'Gauss {i+1} FWHM' if gauss_count > 1 else 'Gauss FWHM'
+                        
+                        # Generate Gaussian curve where amp is peak height
+                        y_fit = amp * np.exp(-0.5 * ((x_fit - center) / sigma)**2)
+                        
+                        # FWHM line at half the peak height
+                        ax.hlines(y=amp/2, xmin=center-fwhm_half, xmax=center+fwhm_half, 
+                                 colors=color, linestyle="-", linewidth=2, alpha=0.7,
+                                 label=label_fwhm if peakNo == 0 else '')
+                        
+                        label_fit = f'Gauss {i+1}' if gauss_count > 1 else 'Gaussian Fit'
+                        ax.plot(x_fit, y_fit, color=color, linewidth=2, alpha=0.7, linestyle='--', 
+                               label=label_fit if peakNo == 0 else '')
+                        
+                        # Accumulate for total curve
+                        total_y_fit += y_fit
+                    
+                    # Plot sum of all Gaussians if multiple
+                    if gauss_count > 1:
+                        ax.plot(x_fit, total_y_fit, color=tolBlack, linewidth=2.5, linestyle='-', 
+                               label='Total Fit' if peakNo == 0 else '', alpha=0.8)
+                else:
+                    if peakNo == 0:
+                        print("Gaussian fit columns not found. Run .fitGaussians() first.")
         
         ax.legend()
         plt.savefig("traces.png", dpi=600)
+        return self
         return self
 
 

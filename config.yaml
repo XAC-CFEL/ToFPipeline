@@ -22,8 +22,8 @@ PeakFinder:
   pulseStackStop: null
   pulseStackSize: null
   smoothWindow: 5
-  maxSlope: 0
-  slopeLength: 1
+  maxSlope: False
+  slopeLength: False
 
 
 FLASHLoader:
