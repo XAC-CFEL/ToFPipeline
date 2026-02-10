@@ -1504,7 +1504,7 @@ class Fitter(Configurable):
         self.params = params
 
 
-    def pol(self, transParam=None, peakNo=None,beta=0,intMethod="fwhm area",plot=True):
+    def pol(self, transParam=None, peakNo=None,beta=0,intMethod="height",plot=True):
         peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 0)
         transParam = transParam if transParam is not None else self.params
         fullTheta = np.linspace(0,2*np.pi,16,endpoint=False)
