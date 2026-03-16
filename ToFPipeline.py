@@ -661,6 +661,60 @@ class PeakFinder(Configurable):
         
         self.data = self.data.persist()
         return self
+
+    def tShift(self, shift=None):
+        """
+        Shift each detector along the sample axis with zero-padding.
+
+        Positive shift → data moves right; zeros fill the beginning, tail is cut.
+        Negative shift → data moves left;  zeros fill the end,       head is cut.
+
+        Parameters
+        ----------
+        shift : int, or dict {detector: int}, optional
+            Scalar – same shift applied to every detector.
+            Dict   – per-detector shifts, e.g. {0: 5, 1: -3}.
+            Detectors not listed in a dict are not shifted.
+            Falls back to the ``tShift`` key in the config (same types accepted).
+        """
+        def _shiftArray(arr, n):
+            """Shift a dask/numpy array along its last axis by n, zero-padding."""
+            if n == 0:
+                return arr
+            nSamples = arr.shape[-1]
+            pad_width = [(0, 0)] * (arr.ndim - 1)
+            if n > 0:
+                pad_width.append((n, 0))
+                padded = da.pad(arr, pad_width, mode="constant", constant_values=0)
+                return padded[..., :nSamples]
+            else:
+                pad_width.append((0, -n))
+                padded = da.pad(arr, pad_width, mode="constant", constant_values=0)
+                return padded[..., -n:]
+
+        shift = shift if shift is not None else self.config.get("tShift", 0)
+        sampleCoords = self.data.coords["sample"]
+
+        if isinstance(shift, dict):
+            shiftMap = {int(k): int(v) for k, v in shift.items()}
+            arrays = []
+            for det in self.data.detector.values:
+                detData = self.data.sel(detector=det)
+                detShift = shiftMap.get(int(det), 0)
+                if detShift != 0:
+                    shifted = _shiftArray(detData.data, detShift)
+                    detData = detData.copy(data=shifted)
+                arrays.append(detData)
+            self.data = xr.concat(arrays, dim="detector")
+        else:
+            n = int(shift)
+            shifted = _shiftArray(self.data.data, n)
+            self.data = self.data.copy(data=shifted)
+
+        # Restore original sample coordinates (they don't change, only values shift)
+        self.data = self.data.assign_coords(sample=sampleCoords)
+        self.data = self.data.persist()
+        return self
     
     def process(self, threshold=None, peakNo=None,roi=None, distanceFactor=None, symmetric=None, minWidth=True, slopeLength=None, maxSlope=None, slopeStartHeight=None):
         threshold = threshold if threshold is not None else self.config.get("threshold", 0)
@@ -990,7 +1044,8 @@ class PeakFinder(Configurable):
         ax.legend()
         plt.savefig("traces.png", dpi=600)
         return self
-        return self
+
+
 
 
     def dataframe(self):
@@ -1684,6 +1739,330 @@ class StreamPolPlotter(Configurable):
 
 def polarization_model(theta, Plin=1, phi=0, beta2=2, scale=1):
     return scale*(1 + (beta2 / 4) * (1 + 3 * Plin * np.cos(2 * (theta - phi))))
+
+
+class Plotter(Configurable):
+    """
+    Polar plotter for ToF detector data.
+
+    Displays intensity as a function of sample position (radius) and detector
+    angle (from config) using a viridis colorscale.  Optionally overlays the
+    polarization_model function for a given set of Plin / phi / beta2 / scale.
+
+    Angle and ToF-channel mapping are read from the NXSLoader section of the
+    global config (keys ``ToF`` and ``angles``), or can be supplied directly
+    via *config*.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Data with dimensions ``detector``, ``pulse`` (multi-index trainId /
+        pulseId) and ``sample``.
+    config : dict, optional
+        Override keys from the global config.
+    """
+
+    CONFIG_KEY = "NXSLoader"
+
+    def __init__(self, data, config=None):
+        super().__init__(config)
+        self.data = data
+
+        # Build detector -> angle mapping (degrees) from config
+        fullAngles = np.array(
+            self.config.get("angles", np.linspace(0, 360, 16, endpoint=False))
+        )
+        detectors = self.config.get("ToF", list(range(15)))
+
+        if len(fullAngles) == len(detectors):
+            # angles list corresponds 1-to-1 with the selected detectors
+            self.detectorAngles = {d: a for d, a in zip(detectors, fullAngles)}
+        else:
+            # angles list is a full set — index into it by detector number
+            self.detectorAngles = {d: fullAngles[d] for d in detectors}
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _selectSlice(self, trainId=None, pulseIndex=0, pulseId=None):
+        """Return a 2-D (detector × sample) DataArray for one train/pulse."""
+        index = self.data["pulse"].to_index()
+        availableTrains = index.get_level_values("trainId").unique()
+
+        if trainId is None:
+            trainId = availableTrains[0]
+
+        if pulseId is None:
+            trainPulses = index[index.get_level_values("trainId") == trainId]
+            pulseId = trainPulses.get_level_values("pulseId")[pulseIndex]
+
+        return (
+            self.data.sel(pulse={"trainId": trainId, "pulseId": pulseId}),
+            trainId,
+            pulseId,
+        )
+
+    def _buildIntensityGrid(self, traces, anglesRad, nTheta=720):
+        """
+        Interpolate *traces* (n_det × n_sample) onto a uniform theta grid.
+
+        Returns
+        -------
+        intensityGrid : ndarray, shape (nTheta, nSample)
+        thetaGrid     : ndarray, shape (nTheta,)
+        """
+        nSamples = traces.shape[1]
+        thetaGrid = np.linspace(0, 2 * np.pi, nTheta, endpoint=False)
+        intensityGrid = np.zeros((nTheta, nSamples))
+
+        sortIdx = np.argsort(anglesRad)
+        sortedAngles = anglesRad[sortIdx]
+        sortedTraces = traces[sortIdx]
+
+        for si in range(nSamples):
+            vals = sortedTraces[:, si]
+            # Extend arrays for periodic (wrap-around) interpolation
+            xpExt = np.concatenate(
+                [sortedAngles - 2 * np.pi, sortedAngles, sortedAngles + 2 * np.pi]
+            )
+            fpExt = np.concatenate([vals, vals, vals])
+            intensityGrid[:, si] = np.interp(thetaGrid, xpExt, fpExt)
+
+        return intensityGrid, thetaGrid
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def plot(
+        self,
+        trainId=None,
+        pulseIndex=0,
+        pulseId=None,
+        sampleMin=None,
+        sampleMax=None,
+        vMin=None,
+        vMax=None,
+        figsize=(8, 8),
+        interpolate=True,
+        nTheta=720,
+        transParam=None,
+        showModel=False,
+        Plin=1.0,
+        phi=0.0,
+        beta2=2.0,
+        scale=1.0,
+        modelRadius=None,
+        modelColor="red",
+        modelLabel=None,
+        cbarLabel="Intensity",
+        title=None,
+        ax=None,
+    ):
+        """
+        Plot data in polar coordinates.
+
+        Parameters
+        ----------
+        trainId : int or None
+            Train ID to display.  ``None`` → first available train.
+        pulseIndex : int
+            Pulse index within the train (used when *pulseId* is ``None``).
+        pulseId : int or None
+            Explicit pulse ID.  Overrides *pulseIndex* when given.
+        sampleMin, sampleMax : int or None
+            Range of sample indices to display (inner / outer radius).
+        vMin, vMax : float or None
+            Colorscale limits.  ``None`` → auto.
+        figsize : tuple
+            Figure size (ignored when *ax* is provided).
+        interpolate : bool
+            ``True`` – smooth 2-D interpolation between detector angles.
+            ``False`` – each detector drawn as a narrow discrete wedge.
+        nTheta : int
+            Number of theta steps used for the interpolated grid.
+        transParam : pandas.DataFrame or None
+            Calibration table with at least columns ``detector`` and
+            ``Transmission Coefficient`` (same format as used by
+            ``Fitter.pol()``).  Each detector's trace is multiplied by its
+            coefficient before plotting.  Detectors not listed in the table
+            are left unscaled.
+        showModel : bool
+            Overlay ``polarization_model`` as a radial curve.
+        Plin, phi, beta2, scale : float
+            Parameters forwarded to ``polarization_model``.
+        modelRadius : float or None
+            Peak radius of the overlaid model curve.
+            Defaults to ``sampleMax``.
+        modelColor : str
+            Line colour for the model overlay.
+        modelLabel : str or None
+            Legend label for the model overlay.
+        cbarLabel : str
+            Label for the colourbar.
+        title : str or None
+            Plot title.  ``None`` → auto-generated from trainId / pulseId.
+        ax : matplotlib.axes.Axes or None
+            Existing polar axes to draw into.  When ``None`` a new figure is
+            created.
+
+        Returns
+        -------
+        self
+        """
+        dataSlice, trainId, pulseId = self._selectSlice(trainId, pulseIndex, pulseId)
+
+        # Keep only detectors that have an angle mapping
+        availableDets = [
+            int(d) for d in dataSlice.detector.values if int(d) in self.detectorAngles
+        ]
+        availableDets = sorted(availableDets, key=lambda d: self.detectorAngles[d])
+
+        anglesRad = np.array(
+            [self.detectorAngles[d] * np.pi / 180 for d in availableDets]
+        )
+
+        # Build (n_det × n_sample) intensity array
+        traces = np.array(
+            [dataSlice.sel(detector=d).values for d in availableDets]
+        )
+
+        # Apply calibration (Transmission Coefficient) if provided
+        if transParam is not None:
+            calibMap = (
+                transParam
+                .set_index("detector")["Transmission Coefficient"]
+                .to_dict()
+            )
+            for i, det in enumerate(availableDets):
+                coeff = calibMap.get(det, calibMap.get(str(det), 1.0))
+                traces[i] = traces[i] * coeff
+
+        # Sample coordinate values (may be offset by ROI)
+        sampleCoords = dataSlice.coords["sample"].values
+        idxMin = 0 if sampleMin is None else int(np.searchsorted(sampleCoords, sampleMin))
+        idxMax = len(sampleCoords) if sampleMax is None else int(
+            np.searchsorted(sampleCoords, sampleMax, side="right")
+        )
+
+        traces = traces[:, idxMin:idxMax]
+        rVals = sampleCoords[idxMin:idxMax]
+
+        # Radius bin edges for pcolormesh
+        if len(rVals) > 1:
+            dr = rVals[1] - rVals[0]
+        else:
+            dr = 1.0
+        rEdges = np.concatenate([[rVals[0] - dr / 2], rVals + dr / 2])
+
+        # ------------------------------------------------------------------
+        # Set up axes
+        # ------------------------------------------------------------------
+        ownFig = ax is None
+        if ownFig:
+            fig, ax = plt.subplots(figsize=figsize, subplot_kw={"projection": "polar"})
+
+        vmin = vMin if vMin is not None else traces.min()
+        vmax = vMax if vMax is not None else traces.max()
+
+        # ------------------------------------------------------------------
+        # Draw data
+        # ------------------------------------------------------------------
+        if interpolate:
+            intensityGrid, thetaGrid = self._buildIntensityGrid(
+                traces, anglesRad, nTheta=nTheta
+            )
+            dTheta = thetaGrid[1] - thetaGrid[0]
+            thetaEdges = np.append(thetaGrid - dTheta / 2, thetaGrid[-1] + dTheta / 2)
+
+            # pcolormesh(theta, r, C) → C shape (n_r, n_theta)
+            mesh = ax.pcolormesh(
+                thetaEdges,
+                rEdges,
+                intensityGrid.T,
+                cmap="viridis",
+                vmin=vmin,
+                vmax=vmax,
+                shading="auto",
+            )
+        else:
+            # Discrete wedge per detector — fixed width of 360°/16 for all detectors
+            wedgeWidth = 2 * np.pi / 16
+
+            for i, det in enumerate(availableDets):
+                ang = anglesRad[i]
+                thetaEdges = np.array([ang - wedgeWidth / 2, ang + wedgeWidth / 2])
+                C = traces[i, :][np.newaxis, :]   # shape (1, n_sample)
+                ax.pcolormesh(
+                    thetaEdges,
+                    rEdges,
+                    C.T,
+                    cmap="viridis",
+                    vmin=vmin,
+                    vmax=vmax,
+                    shading="auto",
+                )
+
+            # Dummy mesh for colourbar
+            mesh = ax.pcolormesh(
+                [0, 0.01], [rEdges[0], rEdges[-1]], [[vmin]], cmap="viridis",
+                vmin=vmin, vmax=vmax, shading="auto"
+            )
+            mesh.set_visible(False)
+
+        # Colourbar
+        if ownFig:
+            plt.colorbar(mesh, ax=ax, label=cbarLabel, shrink=0.7, pad=0.1)
+
+        # ------------------------------------------------------------------
+        # Overlay polarization model
+        # ------------------------------------------------------------------
+        if showModel:
+            rMax = rVals[-1] if len(rVals) > 0 else 1.0
+            mRadius = modelRadius if modelRadius is not None else rMax
+
+            thetaModel = np.linspace(0, 2 * np.pi, 720)
+            modelVals = polarization_model(
+                thetaModel, Plin=Plin, phi=phi, beta2=beta2, scale=scale
+            )
+            # Normalise to [0, mRadius]
+            mMin, mMax = modelVals.min(), modelVals.max()
+            if mMax > mMin:
+                modelRad = (modelVals - mMin) / (mMax - mMin) * mRadius
+            else:
+                modelRad = np.full_like(modelVals, mRadius / 2)
+
+            label = modelLabel or (
+                f"Model  Plin={Plin:.3f}  φ={np.degrees(phi):.1f}°"
+            )
+            ax.plot(thetaModel, modelRad, color=modelColor, linewidth=2, label=label)
+            ax.legend(loc="lower right", fontsize=8)
+
+        # ------------------------------------------------------------------
+        # Cosmetics
+        # ------------------------------------------------------------------
+        ax.set_theta_zero_location("N")
+        ax.set_theta_direction(-1)
+
+        # Constrain radial axis to the selected sample range
+        ax.set_rlim(rEdges[0], rEdges[-1])
+
+        # Tick marks at detector angles
+        ax.set_xticks(anglesRad)
+        ax.set_xticklabels(
+            [f"{self.detectorAngles[d]:.1f}°" for d in availableDets], fontsize=7
+        )
+
+        plotTitle = title or f"Polar ToF plot — train {trainId}, pulse {pulseId}"
+        ax.set_title(plotTitle, pad=15)
+
+        if ownFig:
+            plt.tight_layout()
+            plt.show()
+
+        return self
+
 
 #Main Functions
 #determines peakwidth of symetric peaks
