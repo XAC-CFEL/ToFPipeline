@@ -774,7 +774,7 @@ class PeakFinder(Configurable):
         return self
 
 
-    def plot(self, trainIndex=None, pulseIndex=None, num=None, xmin=None, xmax=None, ymin=None, ymax=None, logScale=True, showGaussianFit=False):
+    def plot(self, trainIndex=None, pulseIndex=None, num=None, xmin=None, xmax=None, ymin=None, ymax=None, logScale=False, showGaussianFit=False, raw=False):
 
         train_ids = self.data.indexes["pulse"].get_level_values("trainId")
         pulse_ids = self.data.indexes["pulse"].get_level_values("pulseId")
@@ -810,7 +810,7 @@ class PeakFinder(Configurable):
         tolBlack = '#000000'
         
         # Define colors for multiple Gaussians using Tol palette
-        gaussColors = [tolCyan, tolYellow, tolPurple, tolGrey, tolGreen]
+        gaussColors = [tolRed, tolYellow, tolGrey, tolGreen]
         
         for ToF in self.data["detector"].to_index():
             trace = self.data.sel(detector=ToF,pulse={"trainId": trainId, "pulseId": pulseId})
@@ -826,81 +826,82 @@ class PeakFinder(Configurable):
                 print("Warning: results is not a DataFrame. Call .dataframe() first.")
                 j += 1
                 continue
-                
-            for peakNo in self.results["peakNo"].unique():
-                peak = self.results[(self.results["detector"]==ToF)&(self.results["peakNo"]==peakNo)&(self.results["trainId"]==trainId)&(self.results["pulseId"]==pulseId)]
-                if peak.empty:
-                    continue
-                pos = peak["pos"].iloc[0]
-                height = peak["height"].iloc[0]
-                widthl = peak["width left"].iloc[0]
-                widthr = peak["width right"].iloc[0]
-                ax[j].hlines(y=height/2, xmin=pos+widthl, xmax=pos+widthr, colors=tolPurple)
-                ax[j].scatter(x=pos,y=height,color=tolPurple)
-                
-                # Plot baseline if available
-                if "baseline left" in peak.columns and "baseline right" in peak.columns:
-                    baselineL = peak["baseline left"].iloc[0]
-                    baselineR = peak["baseline right"].iloc[0]
-                    if baselineL is not False and not pd.isna(baselineL) and not pd.isna(baselineR):
-                        ax[j].plot([int(baselineL), int(baselineR)], [trace[int(baselineL)], trace[int(baselineR)]], color=tolGreen, linestyle='--')
-                        baselineAdjustedTrace = trace.to_numpy().copy()
 
-                        baselineSlope = (trace[int(baselineR)] - trace[int(baselineL)]) / (baselineR - baselineL)
-                        offset = trace[int(baselineL)] - baselineSlope * baselineL
-                        
-                        for k in range(int(baselineL), int(baselineR) + 1):
-                            baselineAdjustedTrace[k] = baselineAdjustedTrace[k] - (baselineSlope * k + offset)
-                        
-                        baselineX = np.arange(int(baselineL), int(baselineR)+1)
-                        baselineAdjustedTrace = baselineAdjustedTrace[int(baselineL):int(baselineR)+1]
-                        ax[j].plot(baselineX, baselineAdjustedTrace, color=tolGreen, linestyle='dotted', label='Baseline Adjusted' if peakNo == 0 else '',alpha=0.7)
-                
-                # Plot Gaussian fit if available and requested
-                if showGaussianFit:
-                    # Check how many Gaussians were fitted for this peak
-                    gaussCount = 0
-                    for i in range(10):  # Check up to 10 Gaussians
-                        suffix = f"_{i+1}" if i > 0 else ""
-                        colName = f'gauss{suffix}_amplitude'
-                        if colName in peak.columns and not pd.isna(peak[colName].iloc[0]):
-                            gaussCount += 1
-                        else:
-                            break
+            if not raw: 
+                for peakNo in self.results["peakNo"].unique():
+                    peak = self.results[(self.results["detector"]==ToF)&(self.results["peakNo"]==peakNo)&(self.results["trainId"]==trainId)&(self.results["pulseId"]==pulseId)]
+                    if peak.empty:
+                        continue
+                    pos = peak["pos"].iloc[0]
+                    height = peak["height"].iloc[0]
+                    widthl = peak["width left"].iloc[0]
+                    widthr = peak["width right"].iloc[0]
+                    ax[j].hlines(y=height/2, xmin=pos+widthl, xmax=pos+widthr, colors=tolPurple)
+                    ax[j].scatter(x=pos,y=height,color=tolPurple)
                     
-                    if gaussCount > 0:
-                        # Determine common xFit range for all Gaussians
-                        xRange = max(abs(widthl), abs(widthr)) * 3
-                        xFit = np.linspace(pos - xRange, pos + xRange, 200)
-                        totalYFit = np.zeros_like(xFit)
-                        
-                        # Plot each Gaussian
-                        for i in range(gaussCount):
+                    # Plot baseline if available
+                    if "baseline left" in peak.columns and "baseline right" in peak.columns:
+                        baselineL = peak["baseline left"].iloc[0]
+                        baselineR = peak["baseline right"].iloc[0]
+                        if baselineL is not False and not pd.isna(baselineL) and not pd.isna(baselineR):
+                            ax[j].plot([int(baselineL), int(baselineR)], [trace[int(baselineL)], trace[int(baselineR)]], color=tolGreen, linestyle='--')
+                            baselineAdjustedTrace = trace.to_numpy().copy()
+
+                            baselineSlope = (trace[int(baselineR)] - trace[int(baselineL)]) / (baselineR - baselineL)
+                            offset = trace[int(baselineL)] - baselineSlope * baselineL
+                            
+                            for k in range(int(baselineL), int(baselineR) + 1):
+                                baselineAdjustedTrace[k] = baselineAdjustedTrace[k] - (baselineSlope * k + offset)
+                            
+                            baselineX = np.arange(int(baselineL), int(baselineR)+1)
+                            baselineAdjustedTrace = baselineAdjustedTrace[int(baselineL):int(baselineR)+1]
+                            ax[j].plot(baselineX, baselineAdjustedTrace, color=tolGreen, linestyle='dotted', label='Baseline Adjusted' if peakNo == 0 else '',alpha=0.7)
+                    
+                    # Plot Gaussian fit if available and requested
+                    if showGaussianFit:
+                        # Check how many Gaussians were fitted for this peak
+                        gaussCount = 0
+                        for i in range(10):  # Check up to 10 Gaussians
                             suffix = f"_{i+1}" if i > 0 else ""
-                            amp = peak[f'gauss{suffix}_amplitude'].iloc[0]
-                            center = peak[f'gauss{suffix}_center'].iloc[0]
-                            sigma = peak[f'gauss{suffix}_sigma'].iloc[0]
-                            
-                            color = gaussColors[i % len(gaussColors)]
-                            
-                            # Calculate FWHM from Gaussian fit: FWHM = 2.355 * sigma
-                            fwhmHalf = 1.177 * sigma
-                            
-                            # Generate Gaussian curve where amp is peak height
-                            yFit = amp * np.exp(-0.5 * ((xFit - center) / sigma)**2)
-                            
-                            # FWHM line at half the peak height
-                            ax[j].hlines(y=amp/2, xmin=center-fwhmHalf, xmax=center+fwhmHalf, 
-                                     colors=color, linestyle="-", linewidth=2, alpha=0.7)
-                            
-                            ax[j].plot(xFit, yFit, color=color, linewidth=2, alpha=0.7, linestyle='--')
-                            
-                            # Accumulate for total curve
-                            totalYFit += yFit
+                            colName = f'gauss{suffix}_amplitude'
+                            if colName in peak.columns and not pd.isna(peak[colName].iloc[0]):
+                                gaussCount += 1
+                            else:
+                                break
                         
-                        # Plot sum of all Gaussians if multiple
-                        if gaussCount > 1:
-                            ax[j].plot(xFit, totalYFit, color=tolBlack, linewidth=2.5, linestyle='-', alpha=0.8)
+                        if gaussCount > 0:
+                            # Determine common xFit range for all Gaussians
+                            xRange = max(abs(widthl), abs(widthr)) * 3
+                            xFit = np.linspace(pos - xRange, pos + xRange, 200)
+                            totalYFit = np.zeros_like(xFit)
+                            
+                            # Plot each Gaussian
+                            for i in range(gaussCount):
+                                suffix = f"_{i+1}" if i > 0 else ""
+                                amp = peak[f'gauss{suffix}_amplitude'].iloc[0]
+                                center = peak[f'gauss{suffix}_center'].iloc[0]
+                                sigma = peak[f'gauss{suffix}_sigma'].iloc[0]
+                                
+                                color = gaussColors[i % len(gaussColors)]
+                                
+                                # Calculate FWHM from Gaussian fit: FWHM = 2.355 * sigma
+                                fwhmHalf = 1.177 * sigma
+                                
+                                # Generate Gaussian curve where amp is peak height
+                                yFit = amp * np.exp(-0.5 * ((xFit - center) / sigma)**2)
+                                
+                                # FWHM line at half the peak height
+                                ax[j].hlines(y=amp/2, xmin=center-fwhmHalf, xmax=center+fwhmHalf, 
+                                        colors=color, linestyle="-", linewidth=2, alpha=0.7)
+                                
+                                ax[j].plot(xFit, yFit, color=color, linewidth=2, alpha=0.7, linestyle='--')
+                                
+                                # Accumulate for total curve
+                                totalYFit += yFit
+                            
+                            # Plot sum of all Gaussians if multiple
+                            if gaussCount > 1:
+                                ax[j].plot(xFit, totalYFit, color=tolBlack, linewidth=2.5, linestyle='-', alpha=0.8)
             j+=1
         plt.savefig("traces.png",dpi=600)
         return self
@@ -987,7 +988,7 @@ class PeakFinder(Configurable):
             # Plot Gaussian fit if available and requested
             if showGaussianFit:
                 # Define colors for multiple Gaussians using Tol palette
-                gauss_colors = [tolCyan, tolYellow, tolPurple, tolGrey, tolGreen]
+                gauss_colors = [tolPurple, tolCyan, tolYellow,tolGrey, tolGreen]
                 
                 # Check how many Gaussians were fitted for this peak
                 gauss_count = 0
@@ -2048,19 +2049,75 @@ class Plotter(Configurable):
         # Constrain radial axis to the selected sample range
         ax.set_rlim(rEdges[0], rEdges[-1])
 
+        # Remove outer border of the polar plot
+        ax.spines["polar"].set_visible(False)
+
+        # Place r tick labels in a gap between detectors when possible.
+        # All 16 possible slots are spaced 22.5° apart; find the midpoint of the
+        # largest empty arc so the labels don't overlap with data wedges.
+        # Only do this for the discrete (non-interpolated) mode and when at
+        # least one slot is missing.
+        allSlotAngles = np.linspace(0, 2 * np.pi, 16, endpoint=False)  # 16 slots
+        usedAnglesRad = np.array(sorted(anglesRad % (2 * np.pi)))
+
+        def _largestGapMidpoint(usedAngles, allSlots):
+            """Return the midpoint (rad) of the largest arc not covered by usedAngles."""
+            # Snap each slot to "used" or "empty"
+            usedSet = set(
+                np.argmin(np.abs(allSlots[:, None] - usedAngles[None, :]), axis=0)
+            )
+            emptySlots = [a for i, a in enumerate(allSlots) if i not in usedSet]
+            if not emptySlots:
+                return None
+            # Find largest consecutive run of empty slots (circular)
+            emptyIdx = sorted(
+                [i for i, a in enumerate(allSlots) if i not in usedSet]
+            )
+            # Build runs with wrap-around
+            n = len(allSlots)
+            bestLen, bestStart = 0, emptyIdx[0]
+            runLen, runStart = 1, emptyIdx[0]
+            for k in range(1, len(emptyIdx) + len(emptyIdx)):
+                cur = emptyIdx[k % len(emptyIdx)]
+                prev = emptyIdx[(k - 1) % len(emptyIdx)]
+                if (cur - prev) % n == 1:
+                    runLen += 1
+                else:
+                    runLen, runStart = 1, cur
+                if runLen > bestLen:
+                    bestLen, bestStart = runLen, runStart
+                if k >= len(emptyIdx) - 1 and runLen == bestLen:
+                    break
+            midSlot = (bestStart + bestLen // 2) % n
+            return float(np.degrees(allSlots[midSlot]))
+
+        if not interpolate and len(usedAnglesRad) < len(allSlotAngles):
+            gapDeg = _largestGapMidpoint(usedAnglesRad, allSlotAngles)
+            if gapDeg is not None:
+                ax.set_rlabel_position(gapDeg)
+        # else: leave at matplotlib default (22.5°)
+
+        # Re-apply white background after rlabel position may have changed
+        for label in ax.get_yticklabels():
+            label.set_bbox(dict(facecolor="white", edgecolor="none", alpha=0.7, pad=1))
+
         # Tick marks at detector angles
         ax.set_xticks(anglesRad)
         ax.set_xticklabels(
-            [f"{self.detectorAngles[d]:.1f}°" for d in availableDets], fontsize=7
+            [f"{self.detectorAngles[d]:.1f}°\nToF {d}" for d in availableDets], fontsize=12
         )
+        ax.tick_params(axis="x", pad=15)
+        for label in ax.get_yticklabels():
+            label.set_backgroundcolor((1, 1, 1, 0.7))
+            label.set_fontsize(12)
 
-        plotTitle = title or f"Polar ToF plot — train {trainId}, pulse {pulseId}"
+        plotTitle = title
         ax.set_title(plotTitle, pad=15)
-
+        plt.savefig("polHeat.png",dpi=600)
         if ownFig:
             plt.tight_layout()
             plt.show()
-
+        
         return self
 
 
