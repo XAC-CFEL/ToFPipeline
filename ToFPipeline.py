@@ -1438,7 +1438,7 @@ class Calibrate(Configurable):
         
     def energy(self,relPos=False,peakNo=None,guess=None):
         peakNo = (peakNo or self.config.get("peakNo", 1))
-        guess = (guess or self.config.get("initial guess", [0,0.001,10000]))
+        guess = (guess or self.config.get("initial guess", None))  # Will be computed from data if None
         avgPos = self.results.groupby(["detector","peakNo","Photon Energy"])["pos"].mean().reset_index()
         energyParam = []
         transmissionParam = []
@@ -1453,23 +1453,75 @@ class Calibrate(Configurable):
             xdata = pos.values
             ydata = energy.values
             goodData = self.madFilter(xdata,ydata)
-            guess = [min(ydata),0.001,max(ydata)]
+            
+            # Use provided guess or compute data-driven initial guesses
+            if guess is None:
+                # Create data-driven initial guesses for energyCalibFunc: p0 + p1/sqrt(e+p2) + p3/(e+p4)^(3/2)
+                y_min, y_max = min(ydata), max(ydata)
+                x_min, x_max = min(xdata), max(xdata)
+                y_range = y_max - y_min
+                x_mean = np.mean(xdata)
+                
+                # p0: baseline energy (slightly below minimum)
+                p0_guess = y_min - 0.1 * y_range
+                
+                # p1, p3: scale with energy range and typical positions
+                # The 1/sqrt term typically dominates, give it more weight
+                p1_guess = y_range * np.sqrt(x_mean)
+                p3_guess = y_range * (x_mean)**(1.5) * 0.1
+                
+                # p2, p4: offset to ensure positive arguments, related to position scale
+                # Need e + p2 > 0, so p2 > -min(xdata)
+                p2_guess = abs(x_min) + x_mean
+                p4_guess = abs(x_min) + x_mean
+                
+                guess_to_use = [p0_guess, p1_guess, p2_guess, p3_guess, p4_guess]
+                
+                # Set bounds to help convergence
+                # p0: allow some range around the baseline
+                # p1, p3: must be positive (contribute positive energy)
+                # p2, p4: must keep arguments positive, i.e., > -x_min
+                bounds_lower = [
+                    y_min - y_range,           # p0: below minimum energy
+                    0,                          # p1: positive
+                    -x_min + 1e-6,             # p2: keep x+p2 > 0
+                    0,                          # p3: positive  
+                    -x_min + 1e-6              # p4: keep x+p4 > 0
+                ]
+                bounds_upper = [
+                    y_max + y_range,           # p0: above maximum energy
+                    y_range * x_max * 10,      # p1: large but not unbounded
+                    x_max * 10,                # p2: reasonable upper limit
+                    y_range * (x_max**1.5),    # p3: large but not unbounded
+                    x_max * 10                 # p4: reasonable upper limit
+                ]
+            else:
+                # Use provided guess
+                guess_to_use = guess
+                bounds_lower = -np.inf
+                bounds_upper = np.inf
+            
             try:
-                params, pcov = curve_fit(negExpFunc, xdata[goodData], ydata[goodData], p0=guess, maxfev=1000000)
-                aFit, bFit, cFit = params
+                params, pcov = curve_fit(energyCalibFunc, xdata[goodData], ydata[goodData], 
+                                        p0=guess_to_use, bounds=(bounds_lower, bounds_upper), maxfev=1000000)
+                p0Fit, p1Fit, p2Fit, p3Fit, p4Fit = params
                 perr = np.sqrt(np.diag(pcov))
-                energyParam.append({"detector": det, "peakNo": peakNo, "a": aFit, "b": bFit, "c": cFit, "a error":perr[0], "b error":perr[1], "c error":perr[2]})
+                energyParam.append({"detector": det, "peakNo": peakNo, "p0": p0Fit, "p1": p1Fit, "p2": p2Fit, "p3": p3Fit, "p4": p4Fit, "p0 error":perr[0], "p1 error":perr[1], "p2 error":perr[2], "p3 error":perr[3], "p4 error":perr[4]})
             except RuntimeError:
                 # Fit failed
                 energyParam.append({
                     'detector': det,
                     'peakNo': peakNo,
-                    'a': np.nan,
-                    'b': np.nan,
-                    'c': np.nan,
-                    "a error":np.nan,
-                    "b error":np.nan,
-                    "c error":np.nan,
+                    'p0': np.nan,
+                    'p1': np.nan,
+                    'p2': np.nan,
+                    'p3': np.nan,
+                    'p4': np.nan,
+                    "p0 error":np.nan,
+                    "p1 error":np.nan,
+                    "p2 error":np.nan,
+                    "p3 error":np.nan,
+                    "p4 error":np.nan,
             })
         self.energyParam = pd.DataFrame(energyParam)
         return self
@@ -1534,9 +1586,9 @@ class Calibrate(Configurable):
                 xFit = np.linspace(xdata[goodData].min(),xdata[goodData].max(),500)
                 xFitExt = np.linspace(xdata[goodData].min(),xdata.max(),500)
                 #print(xdata[goodData].min(),xdata[goodData].max())
-                a, b, c = self.energyParam.loc[self.energyParam["detector"] == i, ["a", "b", "c"]].values[0]
-                ax[j].plot(xFitExt, negExpFunc(xFitExt, a, b, c), color="salmon",linestyle="dashed", label="Fit", linewidth=0.9)
-                ax[j].plot(xFit, negExpFunc(xFit, a, b, c), color="forestgreen", label="Fit")
+                p0,p1,p2,p3,p4 = self.energyParam.loc[self.energyParam["detector"] == i, ["p0", "p1", "p2", "p3", "p4"]].values[0]
+                ax[j].plot(xFitExt, energyCalibFunc(xFitExt, p0, p1, p2, p3, p4), color="salmon",linestyle="dashed", label="Fit", linewidth=0.9)
+                ax[j].plot(xFit, energyCalibFunc(xFit, p0, p1, p2, p3, p4), color="forestgreen", label="Fit")
                 ax[j].set_xlim([xmin, xmax])
                 ax[j].set_ylim([ymin, ymax])
             ax[j].set_title(f"ToF: {i}")
@@ -2302,7 +2354,7 @@ def findPeaksInTrace(trace, peakNo , cutOff = -100, widthFactor=2, symmetric = T
         resultsDicts = None
     return resultsDicts
 
-def findPeak_np(trace, widthFactor=2, symmetric=False, maxWidth=20, minWidth=False,slopeLength=5, maxSlope=4, originalTrace=None, slopeStartHeight=None):
+def findPeak_np(trace, widthFactor=2, symmetric=False, maxWidth=20, minWidth=False,slopeLength=False, maxSlope=False, originalTrace=None, slopeStartHeight=None):
     """
     Find the largest peak in a trace and compute FWHM widths.
     Uses originalTrace (unzeroed) for baseline detection and peak analysis.
@@ -2446,5 +2498,5 @@ def findPeaksInTrace_sp(trace, peakNo, cutOff=0, widthFactor=2, symmetric=False,
         return results_arr[sorted_indices]
 """
 
-def negExpFunc(x, a, b, c):
-    return a * np.exp(-b * x) + c
+def energyCalibFunc(e, p0, p1, p2, p3, p4):
+    return p0 + (p1/((e+p2)**(1/2))) + (p3/((e+p4)**(3/2)))
