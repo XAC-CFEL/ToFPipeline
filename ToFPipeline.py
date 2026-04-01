@@ -55,7 +55,77 @@ class Configurable:
 class Loader(Configurable):
     def load(self):
         raise NotImplementedError
-        
+
+    def sampleShift(self, shift=None, mode=None):
+        """
+        Shift each detector's trace along the sample axis.
+
+        Positive shift → data moves right (toward higher sample indices).
+        Negative shift → data moves left  (toward lower sample indices).
+
+        Parameters
+        ----------
+        shift : int, or dict {detector: int}, optional
+            Scalar – same shift applied to every detector.
+            Dict   – per-detector shifts, e.g. ``{0: 5, 1: -3}``.
+            Detectors not listed in a dict receive no shift.
+            Falls back to the ``sampleShift`` key in the config.
+            ``0`` or an empty dict means no shift is applied.
+        mode : {'zero', 'roll'}, optional
+            ``'zero'``  – vacated positions are filled with zeros (default).
+            ``'roll'``  – data wraps around the trace (circular shift).
+            Falls back to the ``sampleShiftMode`` key in the config.
+
+        Returns
+        -------
+        self
+        """
+        shift = shift if shift is not None else self.config.get("sampleShift", 0)
+        mode  = mode  if mode  is not None else self.config.get("sampleShiftMode", "zero")
+
+        if shift == 0 or shift == {} or shift is None:
+            return self
+
+        sampleCoords = self.data.coords["sample"]
+        roll = (mode == "roll")
+
+        def _applyShift(arr, n):
+            """Shift a dask array along its last axis by n samples."""
+            if n == 0:
+                return arr
+            if roll:
+                return da.roll(arr, n, axis=-1)
+            else:
+                nSamples = arr.shape[-1]
+                pad_width = [(0, 0)] * (arr.ndim - 1)
+                if n > 0:
+                    pad_width.append((n, 0))
+                    padded = da.pad(arr, pad_width, mode="constant", constant_values=0)
+                    return padded[..., :nSamples]
+                else:
+                    pad_width.append((0, -n))
+                    padded = da.pad(arr, pad_width, mode="constant", constant_values=0)
+                    return padded[..., -n:]
+
+        if isinstance(shift, dict):
+            shiftMap = {int(k): int(v) for k, v in shift.items()}
+            arrays = []
+            for det in self.data.detector.values:
+                detData = self.data.sel(detector=det)
+                detShift = shiftMap.get(int(det), 0)
+                if detShift != 0:
+                    shifted = _applyShift(detData.data, detShift)
+                    detData = detData.copy(data=shifted)
+                arrays.append(detData)
+            self.data = xr.concat(arrays, dim="detector")
+        else:
+            shifted = _applyShift(self.data.data, int(shift))
+            self.data = self.data.copy(data=shifted)
+
+        # Sample coordinate labels are fixed; only the values shift
+        self.data = self.data.assign_coords(sample=sampleCoords)
+        return self
+
 _RUN_CACHE = {}
 class FLASHLoader(Loader):
     def __init__(self,proposal, runNo,config=None):
@@ -285,6 +355,7 @@ class EuXFelLoader(Loader):
             self.xgm = self.xgm.rename({"dim_0": "pulseId"}).isel(pulseId=slice(0,lenTrain))
             self.xgm = self.xgm.assign_coords(pulseId = pulseIds).stack(pulse=('trainId','pulseId'))
         """
+        self.sampleShift()
         return self
 class NXSLoader(Loader):
     """
@@ -539,7 +610,8 @@ class NXSLoader(Loader):
                 dim="pulse"
             )
             self.data = sliced
-            
+
+        self.sampleShift()
         return self
 class PeakFinder(Configurable):
     def __init__(self, data, config=None):
@@ -1599,6 +1671,7 @@ class Calibrate(Configurable):
         plt.savefig("Energy.png",dpi=600)
         plt.show()
         return self
+
 
 class Fitter(Configurable):
     def __init__(self, results, config=None):
