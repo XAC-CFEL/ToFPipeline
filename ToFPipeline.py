@@ -788,11 +788,12 @@ class PeakFinder(Configurable):
         self.data = self.data.persist()
         return self
     
-    def process(self, threshold=None, peakNo=None,roi=None, distanceFactor=None, symmetric=None, minWidth=True, slopeLength=None, maxSlope=None, slopeStartHeight=None):
+    def process(self, threshold=None, peakNo=None,roi=None, distanceFactor=None,widthFraction=None, symmetric=None, minWidth=True, slopeLength=None, maxSlope=None, slopeStartHeight=None):
         threshold = threshold if threshold is not None else self.config.get("threshold", 0)
         peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 8)
         roi = roi if roi is not None else self.config.get("roi", [None,None])
         distanceFactor = distanceFactor if distanceFactor is not None else self.config.get("distanceFactor", 2)
+        widthFraction = widthFraction if widthFraction is not None else self.config.get("widthFraction", 0.5)
         symmetric = symmetric if symmetric is not None else self.config.get("symmetric", True)
         slopeLength = slopeLength if slopeLength is not None else self.config.get("slopeLength", False)
         maxSlope = maxSlope if maxSlope is not None else self.config.get("maxSlope", False)
@@ -803,6 +804,7 @@ class PeakFinder(Configurable):
             peakNo=peakNo,
             cutOff=threshold,
             widthFactor=distanceFactor,
+            widthFraction=widthFraction,
             symmetric=symmetric,
             minWidth=minWidth,
             slopeLength=slopeLength,
@@ -820,7 +822,7 @@ class PeakFinder(Configurable):
             # Create peak function that converts array indices to actual sample coordinates
             def peakFuncWithCoords(trace, coords=sample_coords):
                 peaks = findPeaksInTrace_np(trace, peakNo=peakNo, cutOff=threshold,
-                                            widthFactor=distanceFactor, symmetric=symmetric,
+                                            widthFactor=distanceFactor,widthFraction=widthFraction, symmetric=symmetric,
                                             minWidth=minWidth)
                 # replace array indices with real sample coordinates
                 if peaks is not None and len(peaks) > 0:
@@ -846,8 +848,8 @@ class PeakFinder(Configurable):
         return self
 
 
-    def plot(self, trainIndex=None, pulseIndex=None, num=None, xmin=None, xmax=None, ymin=None, ymax=None, logScale=False, showGaussianFit=False, raw=False):
-
+    def plot(self, trainIndex=None, pulseIndex=None, num=None, xmin=None, xmax=None, ymin=None, ymax=None, widthFraction=None, logScale=False, showGaussianFit=False, raw=False):
+        widthFraction = widthFraction if widthFraction is not None else self.config.get("widthFraction", 0.5)
         train_ids = self.data.indexes["pulse"].get_level_values("trainId")
         pulse_ids = self.data.indexes["pulse"].get_level_values("pulseId")
         
@@ -908,7 +910,7 @@ class PeakFinder(Configurable):
                     height = peak["height"].iloc[0]
                     widthl = peak["width left"].iloc[0]
                     widthr = peak["width right"].iloc[0]
-                    ax[j].hlines(y=height/2, xmin=pos+widthl, xmax=pos+widthr, colors=tolPurple)
+                    ax[j].hlines(y=height*widthFraction, xmin=pos+widthl, xmax=pos+widthr, colors=tolPurple)
                     ax[j].scatter(x=pos,y=height,color=tolPurple)
                     
                     # Plot baseline if available
@@ -1699,26 +1701,53 @@ class Fitter(Configurable):
         maxTrace = max(trace)#[0]
         
     
-        def model(theta,Plin,phi,scale):
-            return polarization_model(theta, Plin=Plin, phi=phi, beta2=beta, scale=scale)
+        def model(theta,A,B,scale):
+            return sepModel(theta, A, B, beta2=beta, scale=scale)
             
-        initial_guess = [0.2, 0.0,1.0]  # [Plin, phi, scale]
-        bounds = ([0.0, -np.pi,0], [2, np.pi,10])
+        initial_guess = [0.0, 0.0,1.0]  # [A, B, scale]
+        bounds = ([-2, -2*np.pi,0], [2, 2*np.pi,10])
         
         # More precise fitting parameters for small values
         popt, pcov = curve_fit(model, theta, trace, p0=initial_guess, bounds=bounds,
                                 method='trf',
-                              ftol=1e-12,    # relative error in sum of squares
-                              xtol=1e-12,    # relative error in solution
-                              gtol=1e-12,    # orthogonality desired
-                              maxfev=10000)  # maximum function evaluations
-        Plin_fit, phi_fit, scale_fit = popt
+                              ftol=1e-9,    # relative error in sum of squares
+                              xtol=1e-9,    # relative error in solution
+                              gtol=1e-9,    # orthogonality desired
+                              maxfev=100000)  # maximum function evaluations
+        A_fit, B_fit, scale_fit = popt
+        Plin_fit = np.sqrt(A_fit**2 + B_fit**2)
+        phi_fit = np.rad2deg(0.5 * np.arctan2(B_fit, A_fit))
+
+        A_fit, B_fit = popt[:2]
+        cov = pcov[:2, :2]
+        sigma_A2 = cov[0, 0]
+        sigma_B2 = cov[1, 1]
+        sigma_AB = cov[0, 1]
+
+        P = np.sqrt(A_fit**2 + B_fit**2)
+
+        # --- Plin error ---
+        sigma_P = np.sqrt(
+            (A_fit/P)**2 * sigma_A2 +
+            (B_fit/P)**2 * sigma_B2 +
+            2*(A_fit*B_fit/P**2)*sigma_AB
+        )
+
+        # --- phi error ---
+        sigma_phi = 0.5 * np.sqrt(
+            (B_fit**2 * sigma_A2 + A_fit**2 * sigma_B2 - 2*A_fit*B_fit*sigma_AB)
+            / (A_fit**2 + B_fit**2)**2
+        )
+        sigma_phi = np.rad2deg(sigma_phi)
+
+        fit_params = [Plin_fit, phi_fit, scale_fit]
+        errors = [sigma_P, sigma_phi, 0]  # No error for scale in this calculation
     
         theta_fit = np.linspace(0, 2*np.pi, 360)
         Plin_fit = np.round(Plin_fit, 8)
         scale_fit = np.round(scale_fit, 8)
         phi_fit = np.round(phi_fit, 8)
-        intensity_fit = polarization_model(theta_fit, Plin=Plin_fit, phi=phi_fit, beta2=beta, scale=scale_fit)
+        intensity_fit = polarization_model(theta_fit, Plin_fit, phi_fit, scale_fit)
         if plot:
             fig, ax = plt.subplots(figsize=(6,4), subplot_kw={'projection': 'polar'})
             ax.plot(theta, trace, marker="o", linewidth=0, label='Data')
@@ -1728,13 +1757,13 @@ class Fitter(Configurable):
             ax.plot(theta_fit, intensity_fit, label=f"Fitted degree of linear polarization: {Plin_fit:.5f}",color="green")
                 
             ax.set_yticks([])
-            ax.set_theta_zero_location("E")  # 0° at top
-            ax.set_theta_direction(1)       # clockwise
+            ax.set_theta_zero_location("N")  # 0° at top
+            ax.set_theta_direction(-1)       # clockwise
             ax.legend(loc="lower right")
             plt.savefig("pol.png", dpi=600)
             plt.show()
             
-        return popt,pcov
+        return fit_params, errors
 
 class StreamTracePlotter:
     def __init__(self):
@@ -1866,6 +1895,9 @@ class StreamPolPlotter(Configurable):
 def polarization_model(theta, Plin=1, phi=0, beta2=2, scale=1):
     return scale*(1 + (beta2 / 4) * (1 + 3 * Plin * np.cos(2 * (theta - phi))))
 
+def sepModel(theta, A, B,beta2=2, scale=1):
+    return scale * (1 + (beta2/4)*(1 + 3*(A*np.cos(2*theta) + B*np.sin(2*theta))))
+
 
 class Plotter(Configurable):
     """
@@ -1890,9 +1922,10 @@ class Plotter(Configurable):
 
     CONFIG_KEY = "NXSLoader"
 
-    def __init__(self, data, config=None):
+    def __init__(self, data, results=None, config=None):
         super().__init__(config)
         self.data = data
+        self.results = results
 
         # Build detector -> angle mapping (degrees) from config
         fullAngles = np.array(
@@ -1985,6 +2018,8 @@ class Plotter(Configurable):
         cbarLabel="Intensity",
         title=None,
         ax=None,
+        direction=1,
+        orientation = "E"
     ):
         """
         Plot data in polar coordinates.
@@ -2065,6 +2100,8 @@ class Plotter(Configurable):
                 coeff = calibMap.get(det, calibMap.get(str(det), 1.0))
                 traces[i] = traces[i] * coeff
 
+
+
         # Sample coordinate values (may be offset by ROI)
         sampleCoords = dataSlice.coords["sample"].values
         idxMin = 0 if sampleMin is None else int(np.searchsorted(sampleCoords, sampleMin))
@@ -2144,39 +2181,28 @@ class Plotter(Configurable):
         # ------------------------------------------------------------------
         # Overlay polarization model
         # ------------------------------------------------------------------
-        if showModel:
-            rMax = rVals[-1] if len(rVals) > 0 else 1.0
-            mRadius = modelRadius if modelRadius is not None else rMax
-
-            thetaModel = np.linspace(0, 2 * np.pi, 720)
-            modelVals = polarization_model(
-                thetaModel, Plin=Plin, phi=phi, beta2=beta2, scale=scale
-            )
-            # Normalise to [0, mRadius]
-            mMin, mMax = modelVals.min(), modelVals.max()
-            if mMax > mMin:
-                modelRad = (modelVals - mMin) / (mMax - mMin) * mRadius
-            else:
-                modelRad = np.full_like(modelVals, mRadius / 2)
-
-            label = modelLabel or (
-                f"Model  Plin={Plin:.3f}  φ={np.degrees(phi):.1f}°"
-            )
-            ax.plot(thetaModel, modelRad, color=modelColor, linewidth=2, label=label)
-            ax.legend(loc="lower right", fontsize=8)
-
+        if self.results is not None:
+            for i in self.results["peakNo"].unique():
+                selPeak = self.results[self.results["peakNo"]==i]
+                peakPos = selPeak["pos"]
+                peakAngles = selPeak["Angles"]
+                widthL = selPeak["width left"]
+                widthR = selPeak["width right"]
+                ax.scatter(np.deg2rad(peakAngles), peakPos, color=modelColor, marker="o")
+                for angle in peakAngles:
+                    ax.plot([np.deg2rad(angle), np.deg2rad(angle)], [peakPos + widthL, peakPos + widthR], color=modelColor, linewidth=0.5, linestyle="-")
         # ------------------------------------------------------------------
         # Cosmetics
         # ------------------------------------------------------------------
-        ax.set_theta_zero_location("N")
-        ax.set_theta_direction(-1)
+        ax.set_theta_zero_location(orientation)
+        ax.set_theta_direction(direction)
 
         # Constrain radial axis to the selected sample range
         ax.set_rlim(rEdges[0], rEdges[-1])
 
         # Remove outer border of the polar plot
         ax.spines["polar"].set_visible(False)
-
+        
         # Place r tick labels in a gap between detectors when possible.
         # All 16 possible slots are spaced 22.5° apart; find the midpoint of the
         # largest empty arc so the labels don't overlap with data wedges.
@@ -2227,7 +2253,7 @@ class Plotter(Configurable):
             label.set_bbox(dict(facecolor="white", edgecolor="none", alpha=0.7, pad=1))
 
         # Tick marks at detector angles
-        ax.set_xticks(anglesRad)
+        ax.set_xticks(anglesRad+anglesRad[1]/2)
         ax.set_xticklabels(
             [f"{self.detectorAngles[d]:.1f}°\nToF {d}" for d in availableDets], fontsize=12
         )
@@ -2237,6 +2263,7 @@ class Plotter(Configurable):
             label.set_fontsize(12)
 
         plotTitle = title
+
         ax.set_title(plotTitle, pad=15)
         plt.savefig("polHeat.png",dpi=600)
         if ownFig:
@@ -2411,13 +2438,13 @@ def findPeakBaseline(trace, peak, slopeLength=5, maxSlope=4, startOffsetL=0, sta
     
     return trace, int(baselinePointL), int(baselinePointR)
 
-def findPeaksInTrace(trace, peakNo , cutOff = -100, widthFactor=2, symmetric = True):
+def findPeaksInTrace(trace, peakNo , cutOff = -100, widthFactor=2, widthFraction=0.5, symmetric = True):
     results = []
     traceCopy = trace.copy()
     if traceCopy.max() > cutOff:
         for i in range(peakNo+1):
             if traceCopy.max() > cutOff:
-                traceCopy, pos, height, widthL, widthR, baselinePointL, baselinePointR = findPeak(traceCopy, widthFactor=widthFactor, symmetric = symmetric)
+                traceCopy, pos, height, widthL, widthR, baselinePointL, baselinePointR = findPeak(traceCopy, widthFactor=widthFactor,widthFraction=widthFraction, symmetric = symmetric)
                 a = trace[pos+widthL:pos+widthR].sum()
                 results.append([pos,height,widthL,widthR,a, baselinePointL, baselinePointR])
     if len(results) == peakNo+1:
@@ -2427,7 +2454,7 @@ def findPeaksInTrace(trace, peakNo , cutOff = -100, widthFactor=2, symmetric = T
         resultsDicts = None
     return resultsDicts
 
-def findPeak_np(trace, widthFactor=2, symmetric=False, maxWidth=20, minWidth=False,slopeLength=False, maxSlope=False, originalTrace=None, slopeStartHeight=None):
+def findPeak_np(trace, widthFactor=2, symmetric=False, maxWidth=20, minWidth=False, widthFraction=0.5, slopeLength=False, maxSlope=False, originalTrace=None, slopeStartHeight=None):
     """
     Find the largest peak in a trace and compute FWHM widths.
     Uses originalTrace (unzeroed) for baseline detection and peak analysis.
@@ -2489,12 +2516,12 @@ def findPeak_np(trace, widthFactor=2, symmetric=False, maxWidth=20, minWidth=Fal
     right_slice = analysisTrace[peak:peak+maxWidth+1]
 
     # Find first index below half max
-    widthR = np.argmax(right_slice < height/2)
-    if widthR == 0 and right_slice[0] >= height/2:
+    widthR = np.argmax(right_slice < height*widthFraction)
+    if widthR == 0 and right_slice[0] >= height*widthFraction:
         widthR = min(maxWidth, len(right_slice)-1)
 
-    widthL = -np.argmax(left_slice < height/2)
-    if widthL == 0 and left_slice[0] >= height/2:
+    widthL = -np.argmax(left_slice < height*widthFraction)
+    if widthL == 0 and left_slice[0] >= height*widthFraction:
         widthL = -min(maxWidth, len(left_slice)-1)
 
     # For symmetric peaks, just use max of L/R
@@ -2517,7 +2544,7 @@ def findPeak_np(trace, widthFactor=2, symmetric=False, maxWidth=20, minWidth=Fal
 
     return trace, peak, height, widthL, widthR, area, baselineL, baselineR
 
-def findPeaksInTrace_np(trace, peakNo, cutOff=-100, widthFactor=2, symmetric=True, maxWidth=30, minWidth=False,slopeLength=5, maxSlope=4, slopeStartHeight=None):
+def findPeaksInTrace_np(trace, peakNo, cutOff=-100, widthFactor=2,widthFraction=0.5, symmetric=True, maxWidth=30, minWidth=False,slopeLength=5, maxSlope=4, slopeStartHeight=None):
     results = []
 
     originalTrace = trace.copy()  # Keep intact copy for baseline detection
@@ -2526,7 +2553,7 @@ def findPeaksInTrace_np(trace, peakNo, cutOff=-100, widthFactor=2, symmetric=Tru
         if traceCopy.max() <= cutOff:
             break
         traceCopy, pos, height, widthL, widthR, area, baselineL, baselineR = findPeak_np(
-            traceCopy, widthFactor=widthFactor, symmetric=symmetric, maxWidth=maxWidth,minWidth=minWidth,slopeLength=slopeLength, maxSlope=maxSlope, originalTrace=originalTrace, slopeStartHeight=slopeStartHeight)
+            traceCopy, widthFactor=widthFactor, widthFraction=widthFraction, symmetric=symmetric, maxWidth=maxWidth,minWidth=minWidth,slopeLength=slopeLength, maxSlope=maxSlope, originalTrace=originalTrace, slopeStartHeight=slopeStartHeight)
 
         results.append([pos, height, widthL, widthR, area, baselineL, baselineR])
 
