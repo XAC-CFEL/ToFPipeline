@@ -481,6 +481,7 @@ class NXSLoader(Loader):
             List of run numbers to load. If None, uses self.runNumbers.
         roi : tuple or list, optional
             Region of interest for sample axis as [start, end]. If None, loads all samples.
+            Falls back to ``roi`` key in config (e.g. ``roi: [0, 1000]``).
             Original sample indices are preserved in coordinates.
             
         Returns
@@ -488,6 +489,7 @@ class NXSLoader(Loader):
         self : NXSLoader
             Returns self with loaded data in self.data
         """
+        roi = roi if roi is not None else self.config.get('roi', None)
         runNumbers = runNumbers or self.runNumbers
         if not runNumbers:
             # Auto-detect run numbers from files
