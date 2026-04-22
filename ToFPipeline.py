@@ -6,7 +6,7 @@ from scipy.signal import find_peaks
 from functools import partial
 
 from pathlib import Path
-import os, re
+#import os, re
 import h5py
 import dask.array as da
 
@@ -15,9 +15,6 @@ from tqdm.notebook import tqdm
 from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
 
-
-from IPython.display import clear_output
-from timeit import default_timer as timer
 
 
 class GlobalConfig:
@@ -1761,131 +1758,7 @@ class Fitter(Configurable):
             
         return fit_params, errors
 
-class StreamTracePlotter:
-    def __init__(self):
-        self.fig, self.ax = plt.subplots(figsize=(6,4))
-        self.ToF = None
-        #self.ax.set_xlim(0,800)
-        self.ax.set_ylim(1,0)
 
-    def setup(self, ToF=0):
-        """Optional: initialize the figure."""
-        self.ToF = ToF
-        self.fig, self.ax = plt.subplots(figsize=(6,4))
-        self.ax.set_xlabel("Sample")
-        self.ax.set_ylabel("Signal")
-        self.ax.set_title("Live Stream")
-        plt.show()
-
-    def update(self, data, results=None, ToF=None, trainIndex=0, pulseIndex=0,xmin=0,xmax=800):
-        """
-        data: the current xarray chunk
-        results: optional DataFrame with peak results
-        """
-        clear_output(wait=True)  # clears previous output so the plot refreshes
-
-        index = data["pulse"].to_index()
-        trainId = index.get_level_values("trainId")[0]
-        pulseId = index.get_level_values("pulseId")[pulseIndex]
-
-        ToF = ToF if ToF is not None else 0
-
-        # select trace for given detector/train/pulse
-        trace = data.sel(detector=ToF, pulse={"trainId": trainId, "pulseId": pulseId})
-
-        # create figure fresh each time
-        fig, ax = plt.subplots(figsize=(6,4))
-        line, = ax.plot(trace, label=f"Train {trainId}, Pulse {pulseId}")
-        ax.set_xlabel("Sample")
-        ax.set_ylabel("Signal")
-        ax.set_title("Streaming Trace")
-        ax.set_xlim(xmin,xmax)
-        ax.set_ylim(-0.1,1)
-        ax.legend(loc="lower right")
-        
-        
-        # draw peaks if results exist
-        if results is not None and not results.empty and "pos" in results.columns:
-            peaks = results[
-                  (results["detector"] == ToF)
-                & (results["trainId"] == trainId)
-                & (results["pulseId"] == pulseId)]
-            
-            for _, peak in peaks.iterrows():
-                pos = peak["pos"]
-                height = peak["height"]
-                ax.scatter(pos, height, color="red")
-                ax.hlines(y=height/2, xmin=pos+peak["width left"], xmax=pos+peak["width right"], colors="red")
-        else:
-            line.set_color("red")
-        plt.show()
-
-
-class StreamPolPlotter(Configurable):
-    def __init__(self,calibration=None, config=None):
-        super().__init__(config)
-        self.calibData = None
-        self.trace = None
-        self.traceData = None
-        self.fullTheta = np.linspace(0,2*np.pi,16,endpoint=False)
-        self.calibration = calibration        
-    
-
-    def loadCalib(self):
-        self.calibData = self.data.merge(calibParams,on["detector","Photon Energy"])
-        self.calibData["calibrated area"] = self.calibData["fwhm area"]*self.calibData["Transmission coefficent"]
-        return self
-
-    def update(self, data, trainId=None):    
-        clear_output(wait=True)
-        fig, ax = plt.subplots(figsize=(6,4), subplot_kw={'projection': 'polar'})
-    
-        # select the data for this trainId and peakNo==0
-        if data is not None and not data.empty and "detector" in data.columns:
-            traceData = data[(data["peakNo"]==0)]
-            if traceData is None or traceData.empty:
-                print("false")
-                
-            dets = traceData["detector"].values
-            theta = self.fullTheta[dets]
-            if self.calibration is not None:
-                #merge
-                traceData_sorted = traceData.sort_values("Photon Energy")
-                calib_sorted = self.calibration.sort_values("Photon Energy")
-                traceData = pd.merge_asof(
-                    traceData_sorted,
-                    calib_sorted,
-                    on="Photon Energy",
-                    by="detector",
-                    direction="nearest"
-                ).dropna(subset=["Transmission coefficent", "fwhm area"])
-                traceData["calibrated area"] = traceData["fwhm area"] * traceData["Transmission coefficent"]
-
-                trace = traceData["calibrated area"].values
-                theta = self.fullTheta[traceData["detector"].values]
-                #Fit
-                initial_guess = [0.5, 0.0, 1.0]  # [Plin, phi, scale]
-                bounds = ([0, -np.pi, 0], [1, np.pi, np.inf])
-                popt, pcov = curve_fit(polarization_model, theta, trace, p0=initial_guess, bounds=bounds)
-                Plin_fit, phi_fit, scale_fit = popt
-
-                theta_fit = np.linspace(0, 2*np.pi, 360)
-                intensity_fit = polarization_model(theta_fit, Plin_fit, phi_fit, scale_fit)
-                #ax.set_rlim(0,1.2)
-                if Plin_fit>0.015:
-                    ax.plot([phi_fit,phi_fit],[0,1],color="orange")
-                    ax.plot([phi_fit+np.pi,phi_fit+np.pi],[0,1],color="orange")
-                ax.plot(theta_fit, intensity_fit, label=f"Fitted degree of linear polarization: {Plin_fit:.3f}",color="green")
-
-            else:
-                trace = traceData["fwhm area"].values
-                ax.set_rlim(0,2)
-            ax.plot(theta, trace, marker="o", linewidth=0, label='Data')
-        ax.set_yticks([])
-        ax.set_theta_zero_location("N")  # 0° at top
-        ax.set_theta_direction(-1)       # clockwise
-        ax.legend(loc="lower right")
-        plt.show()
         
 
 def polarization_model(theta, Plin=1, phi=0, beta2=2, scale=1):
