@@ -1,4 +1,3 @@
-import sys
 import yaml
 import numpy as np
 import xarray as xr
@@ -7,19 +6,16 @@ from scipy.signal import find_peaks
 from functools import partial
 
 from pathlib import Path
-import string, os, re
+import os, re
 import h5py
 import dask.array as da
 
-import time
 from tqdm.notebook import tqdm
 
 from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
-from matplotlib.ticker import MaxNLocator
 
 
-import contextlib
 from IPython.display import clear_output
 from timeit import default_timer as timer
 
