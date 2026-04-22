@@ -1,6 +1,6 @@
 Calibrate:
   Transmission PeakNo: 1
-  beta: 0.21297526881720433
+  beta: 2
   peakNo: 1
 
 PhotonEnergyProcessor:
@@ -40,7 +40,7 @@ FLASHLoader:
     baselineRegion: [0,10]
 
 DoocspieStream:
-  baselineRegion: [0,10]
+    baselineRegion: [0,10]
     addresses:
       0: 'FLASH.FEL/ADC.ADQ/GHZADC1.CH00/CH00.DAQ.TD'
       1: 'FLASH.FEL/ADC.ADQ/GHZADC1.CH01/CH00.DAQ.TD'
