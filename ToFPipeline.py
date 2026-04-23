@@ -1688,7 +1688,7 @@ class Fitter(Configurable):
         self.params = params
 
 
-    def pol(self, transParam=None, peakNo=None,beta=0,intMethod="height",plot=True):
+    def pol(self, transParam=None, peakNo=None, beta=0, setPlin=None, fitBeta=False, intMethod="height", plot=True):
         peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 0)
         transParam = transParam if transParam is not None else self.params
         fullTheta = np.linspace(0,2*np.pi,16,endpoint=False)
@@ -1700,63 +1700,107 @@ class Fitter(Configurable):
         theta = calibArea["Angles"].values*np.pi/180
         trace = calibArea["calibValue"]
         maxTrace = max(trace)#[0]
-        
-    
-        def model(theta,A,B,scale):
-            return sepModel(theta, A, B, beta2=beta, scale=scale)
-            
-        initial_guess = [0.0, 0.0,1.0]  # [A, B, scale]
-        bounds = ([-2, -2*np.pi,0], [2, 2*np.pi,10])
-        
-        # More precise fitting parameters for small values
-        popt, pcov = curve_fit(model, theta, trace, p0=initial_guess, bounds=bounds,
-                                method='trf',
-                              ftol=1e-9,    # relative error in sum of squares
-                              xtol=1e-9,    # relative error in solution
-                              gtol=1e-9,    # orthogonality desired
-                              maxfev=100000)  # maximum function evaluations
-        A_fit, B_fit, scale_fit = popt
-        Plin_fit = np.sqrt(A_fit**2 + B_fit**2)
-        phi_fit = np.rad2deg(0.5 * np.arctan2(B_fit, A_fit))
 
-        A_fit, B_fit = popt[:2]
-        cov = pcov[:2, :2]
-        sigma_A2 = cov[0, 0]
-        sigma_B2 = cov[1, 1]
-        sigma_AB = cov[0, 1]
+        fit_kws = dict(method='trf', ftol=1e-9, xtol=1e-9, gtol=1e-9, maxfev=100000)
 
-        P = np.sqrt(A_fit**2 + B_fit**2)
+        if setPlin is not None:
+            # --- Plin is fixed; fit phi (and optionally beta2) ---
+            beta0 = beta if beta != 0 else 1.0
+            if fitBeta:
+                def model(theta, phi, beta2, scale):
+                    return polarization_model(theta, Plin=setPlin, phi=phi, beta2=beta2, scale=scale)
+                p0     = [0.0, beta0, 1.0]
+                bounds = ([-np.pi, -4.0, 0.0], [np.pi, 4.0, 10.0])
+                popt, pcov = curve_fit(model, theta, trace, p0=p0, bounds=bounds, **fit_kws)
+                phi_rad_fit, beta2_fit, scale_fit = popt
+                sigma_phi = np.rad2deg(np.sqrt(pcov[0, 0]))
+                sigma_beta2 = np.sqrt(pcov[1, 1])
+                sigma_scale = np.sqrt(pcov[2, 2])
+            else:
+                def model(theta, phi, scale):
+                    return polarization_model(theta, Plin=setPlin, phi=phi, beta2=beta, scale=scale)
+                p0     = [0.0, 1.0]
+                bounds = ([-np.pi, 0.0], [np.pi, 10.0])
+                popt, pcov = curve_fit(model, theta, trace, p0=p0, bounds=bounds, **fit_kws)
+                phi_rad_fit, scale_fit = popt
+                beta2_fit = beta
+                sigma_phi = np.rad2deg(np.sqrt(pcov[0, 0]))
+                sigma_beta2 = 0.0
+                sigma_scale = np.sqrt(pcov[1, 1])
 
-        # --- Plin error ---
-        sigma_P = np.sqrt(
-            (A_fit/P)**2 * sigma_A2 +
-            (B_fit/P)**2 * sigma_B2 +
-            2*(A_fit*B_fit/P**2)*sigma_AB
-        )
+            Plin_fit  = setPlin
+            phi_fit   = np.rad2deg(phi_rad_fit)
+            sigma_P   = 0.0  # Plin was fixed
 
-        # --- phi error ---
-        sigma_phi = 0.5 * np.sqrt(
-            (B_fit**2 * sigma_A2 + A_fit**2 * sigma_B2 - 2*A_fit*B_fit*sigma_AB)
-            / (A_fit**2 + B_fit**2)**2
-        )
-        sigma_phi = np.rad2deg(sigma_phi)
+        else:
+            # --- A/B parameterisation (A = Plin·cos2φ, B = Plin·sin2φ) ---
+            if fitBeta:
+                beta0 = beta if beta != 0 else 1.0
+                def model(theta, A, B, beta2, scale):
+                    return sepModel(theta, A, B, beta2=beta2, scale=scale)
+                p0     = [0.0, 0.0, beta0, 1.0]
+                bounds = ([-2.0, -2*np.pi, -4.0, 0.0], [2.0, 2*np.pi, 4.0, 10.0])
+                popt, pcov = curve_fit(model, theta, trace, p0=p0, bounds=bounds, **fit_kws)
+                A_fit, B_fit, beta2_fit, scale_fit = popt
+                cov_AB = pcov[:2, :2]
+                sigma_beta2 = np.sqrt(pcov[2, 2])
+                sigma_scale = np.sqrt(pcov[3, 3])
+            else:
+                def model(theta, A, B, scale):
+                    return sepModel(theta, A, B, beta2=beta, scale=scale)
+                p0     = [0.0, 0.0, 1.0]
+                bounds = ([-2.0, -2*np.pi, 0.0], [2.0, 2*np.pi, 10.0])
+                popt, pcov = curve_fit(model, theta, trace, p0=p0, bounds=bounds, **fit_kws)
+                A_fit, B_fit, scale_fit = popt
+                beta2_fit = beta
+                cov_AB = pcov[:2, :2]
+                sigma_beta2 = 0.0
+                sigma_scale = 0.0
 
-        fit_params = [Plin_fit, phi_fit, scale_fit]
-        errors = [sigma_P, sigma_phi, 0]  # No error for scale in this calculation
-    
-        theta_fit = np.linspace(0, 2*np.pi, 360)
-        Plin_fit = np.round(Plin_fit, 8)
+            Plin_fit = np.sqrt(A_fit**2 + B_fit**2)
+            phi_rad_fit = 0.5 * np.arctan2(B_fit, A_fit)
+            phi_fit  = np.rad2deg(phi_rad_fit)
+
+            sigma_A2 = cov_AB[0, 0]
+            sigma_B2 = cov_AB[1, 1]
+            sigma_AB = cov_AB[0, 1]
+            P = Plin_fit
+            sigma_P = np.sqrt(
+                (A_fit/P)**2 * sigma_A2 +
+                (B_fit/P)**2 * sigma_B2 +
+                2*(A_fit*B_fit/P**2)*sigma_AB
+            )
+            sigma_phi = np.rad2deg(0.5 * np.sqrt(
+                (B_fit**2 * sigma_A2 + A_fit**2 * sigma_B2 - 2*A_fit*B_fit*sigma_AB)
+                / (A_fit**2 + B_fit**2)**2
+            ))
+
+        # Round for display / return
+        Plin_fit  = np.round(Plin_fit,  8)
+        phi_fit   = np.round(phi_fit,   8)
         scale_fit = np.round(scale_fit, 8)
-        phi_fit = np.round(phi_fit, 8)
-        intensity_fit = polarization_model(theta_fit, Plin_fit, phi_fit, scale_fit)
+        beta2_fit = np.round(beta2_fit, 8)
+
+        if fitBeta:
+            fit_params = [Plin_fit, phi_fit, scale_fit, beta2_fit]
+            errors     = [sigma_P, sigma_phi, sigma_scale, sigma_beta2]
+        else:
+            fit_params = [Plin_fit, phi_fit, scale_fit]
+            errors     = [sigma_P, sigma_phi, 0]
+
+        theta_fit     = np.linspace(0, 2*np.pi, 360)
+        intensity_fit = polarization_model(theta_fit, Plin_fit, phi_rad_fit, beta2_fit, scale_fit)
+
         if plot:
             fig, ax = plt.subplots(figsize=(6,4), subplot_kw={'projection': 'polar'})
             ax.plot(theta, trace, marker="o", linewidth=0, label='Data')
-            if Plin_fit>0.015:
-                ax.plot([phi_fit,phi_fit],[0,maxTrace],color="orange")
-                ax.plot([phi_fit+np.pi,phi_fit+np.pi],[0,maxTrace],color="orange")
-            ax.plot(theta_fit, intensity_fit, label=f"Fitted degree of linear polarization: {Plin_fit:.5f}",color="green")
-                
+            if Plin_fit > 0.015:
+                ax.plot([phi_rad_fit, phi_rad_fit], [0, maxTrace], color="orange")
+                ax.plot([phi_rad_fit + np.pi, phi_rad_fit + np.pi], [0, maxTrace], color="orange")
+            label = f"Fitted Plin: {Plin_fit:.5f}"
+            if fitBeta:
+                label += f", beta: {beta2_fit:.4f}"
+            ax.plot(theta_fit, intensity_fit, label=label, color="green")
             ax.set_yticks([])
             ax.set_theta_zero_location("N")  # 0° at top
             ax.set_theta_direction(-1)       # clockwise
