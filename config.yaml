@@ -75,6 +75,11 @@ DoocspieStream:
       13: 259.9
       14: 292.2
       15: 336.6
+    stacking:
+      stackPulses: True
+      pulseStackStart: null
+      pulseStackStop: null
+      pulseStackStep: null
 
 
 NXSLoader:

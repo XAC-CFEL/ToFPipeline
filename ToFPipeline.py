@@ -614,7 +614,7 @@ class PeakFinder(Configurable):
         self.data = data
         self.results = None
 
-    def stack(self, stackTrains=None, trainStackSize=None, stackPulses=None, pulseStackStart = None, pulseStackStop=None,pulseStackSize=None):
+    def stack(self, stackTrains=None, trainStackSize=None, stackPulses=None, pulseStackStart=None, pulseStackStop=None, pulseStackSize=None, pulseStackStep=None):
         pulseIndex = self.data["pulse"].to_index()
         trainIds = pulseIndex.get_level_values("trainId").to_numpy()
         pulseIds = pulseIndex.get_level_values("pulseId").to_numpy()
@@ -625,7 +625,13 @@ class PeakFinder(Configurable):
         stackPulses = stackPulses if stackPulses is not None else self.config.get("stackPulses", True)
         pulseStackStart = pulseStackStart if pulseStackStart is not None else self.config.get("pulseStackStart", 0)
         pulseStackStop = pulseStackStop if pulseStackStop is not None else self.config.get("pulseStackStop", len(np.unique(pulseIds)))
-        pulseStackSize = pulseStackSize if pulseStackSize is not None else self.config.get("pulseStackSize", len(np.unique(pulseIds)))
+        # pulseStackStep is an alias for pulseStackSize used in stream/GUI configs
+        if pulseStackSize is None:
+            pulseStackSize = pulseStackStep if pulseStackStep is not None else None
+        if pulseStackSize is None:
+            pulseStackSize = self.config.get("pulseStackSize", None)
+        if pulseStackSize is None:
+            pulseStackSize = self.config.get("pulseStackStep", len(np.unique(pulseIds)))
         
         if trainStackSize is None:
             trainStackSize = len(np.unique(trainIds))
