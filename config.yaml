@@ -75,6 +75,9 @@ DoocspieStream:
       13: 259.9
       14: 292.2
       15: 336.6
+    shift:
+      15: 5
+      
     stacking:
       stackPulses: True
       pulseStackStart: null
