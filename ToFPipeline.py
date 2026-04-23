@@ -2071,12 +2071,20 @@ class Plotter(Configurable):
                 shading="auto",
             )
         else:
-            # Discrete wedge per detector — fixed width of 360°/16 for all detectors
-            wedgeWidth = 2 * np.pi / 16
+            # Discrete wedge per detector — width = half gap to each neighbour
+            nDets = len(anglesRad)
+            if nDets > 1:
+                # anglesRad is already sorted by angle
+                gaps = np.diff(anglesRad, append=anglesRad[0] + 2 * np.pi)
+                wedgeLeft = np.roll(gaps, 1) / 2
+                wedgeRight = gaps / 2
+            else:
+                wedgeLeft = np.array([np.pi])
+                wedgeRight = np.array([np.pi])
 
             for i, det in enumerate(availableDets):
                 ang = anglesRad[i]
-                thetaEdges = np.array([ang - wedgeWidth / 2, ang + wedgeWidth / 2])
+                thetaEdges = np.array([ang - wedgeLeft[i], ang + wedgeRight[i]])
                 C = traces[i, :][np.newaxis, :]   # shape (1, n_sample)
                 ax.pcolormesh(
                     thetaEdges,
