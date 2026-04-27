@@ -119,6 +119,79 @@ class Loader(Configurable):
         self.data = self.data.assign_coords(sample=sampleCoords)
         return self
 
+    def pulseShift(self, shift=None, mode=None):
+        """
+        Shift each pulse's trace along the sample axis.
+
+        Positive shift → data moves right (toward higher sample indices).
+        Negative shift → data moves left  (toward lower sample indices).
+
+        Parameters
+        ----------
+        shift : int, or dict {pulseId: int}, optional
+            Scalar – same shift applied to every pulse.
+            Dict   – per-pulse shifts keyed by pulseId, e.g. ``{0: 5, 1: -3}``.
+            Pulses not listed in a dict receive no shift.
+            Falls back to the ``pulseShift`` key in the config.
+            ``0`` or an empty dict means no shift is applied.
+        mode : {'zero', 'roll'}, optional
+            ``'zero'``  – vacated positions are filled with zeros (default).
+            ``'roll'``  – data wraps around the trace (circular shift).
+            Falls back to the ``pulseShiftMode`` key in the config.
+
+        Returns
+        -------
+        self
+        """
+        shift = shift if shift is not None else self.config.get("pulseShift", 0)
+        mode  = mode  if mode  is not None else self.config.get("pulseShiftMode", "zero")
+
+        if shift == 0 or shift == {} or shift is None:
+            return self
+
+        sampleCoords = self.data.coords["sample"]
+        roll = (mode == "roll")
+
+        def _applyShift(arr, n):
+            if n == 0:
+                return arr
+            if roll:
+                return da.roll(arr, n, axis=-1)
+            else:
+                nSamples = arr.shape[-1]
+                pad_width = [(0, 0)] * (arr.ndim - 1)
+                if n > 0:
+                    pad_width.append((n, 0))
+                    padded = da.pad(arr, pad_width, mode="constant", constant_values=0)
+                    return padded[..., :nSamples]
+                else:
+                    pad_width.append((0, -n))
+                    padded = da.pad(arr, pad_width, mode="constant", constant_values=0)
+                    return padded[..., -n:]
+
+        if isinstance(shift, dict):
+            shiftMap = {int(k): int(v) for k, v in shift.items()}
+            pulseIndex = self.data.indexes["pulse"]
+            pulseIds = pulseIndex.get_level_values("pulseId")
+            arrays = []
+            for i, pid in enumerate(pulseIds):
+                pulseData = self.data.isel(pulse=i)
+                pulseShiftVal = shiftMap.get(int(pid), 0)
+                if pulseShiftVal != 0:
+                    shifted = _applyShift(pulseData.data, pulseShiftVal)
+                    pulseData = pulseData.copy(data=shifted)
+                arrays.append(pulseData)
+            self.data = xr.concat(arrays, dim="pulse")
+            # Restore the original pulse MultiIndex (xr.concat replaces it with integers)
+            mindex_coords = xr.Coordinates.from_pandas_multiindex(pulseIndex, "pulse")
+            self.data = self.data.assign_coords(mindex_coords)
+        else:
+            shifted = _applyShift(self.data.data, int(shift))
+            self.data = self.data.copy(data=shifted)
+
+        self.data = self.data.assign_coords(sample=sampleCoords)
+        return self
+
 _RUN_CACHE = {}
 class FLASHLoader(Loader):
     def __init__(self,proposal, runNo,config=None):
