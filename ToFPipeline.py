@@ -1687,7 +1687,7 @@ class Calibrate(Configurable):
                 theta = np.deg2rad(selData["Angles"].to_numpy())
                 g = polarization_model(theta, Plin=setPlin, phi=setPhi,beta2=setBeta)
                 transPar = g/trace
-                transmissionParam.append({"detector": ToF, "Photon Energy": energy, "Transmission Coefficient": transPar[0]})
+                transmissionParam.append({"detector": ToF, "Photon Energy": energy,"sample": selData["pos"], "Transmission Coefficient": transPar[0]})
         self.transmissionParam = pd.DataFrame(transmissionParam)
         return self
 
