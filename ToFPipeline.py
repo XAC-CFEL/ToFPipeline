@@ -923,7 +923,8 @@ class PeakFinder(Configurable):
         return self
 
 
-    def plot(self, trainIndex=None, pulseIndex=None, num=None, xmin=None, xmax=None, ymin=None, ymax=None, widthFraction=None, logScale=False, showGaussianFit=False, raw=False):
+    def plot(self, trainIndex=None, pulseIndex=None, num=None, xmin=None, xmax=None, ymin=None, ymax=None, widthFraction=None,
+              logScale=False, showGaussianFit=False, raw=False, savename=False):
         widthFraction = widthFraction if widthFraction is not None else self.config.get("widthFraction", 0.5)
         train_ids = self.data.indexes["pulse"].get_level_values("trainId")
         pulse_ids = self.data.indexes["pulse"].get_level_values("pulseId")
@@ -1052,10 +1053,11 @@ class PeakFinder(Configurable):
                             if gaussCount > 1:
                                 ax[j].plot(xFit, totalYFit, color=tolBlack, linewidth=2.5, linestyle='-', alpha=0.8)
             j+=1
-        plt.savefig("traces.png",dpi=600)
+        if savename is not False:
+            plt.savefig(f"{savename}.png",dpi=600)
         return self
     
-    def plotSingle(self, trainIndex=None, pulseIndex=None, ToF=0, xmin=None, xmax=None, ymin=None, ymax=None, figsize=(12, 8), logScale=False, showGaussianFit=False):
+    def plotSingle(self, trainIndex=None, pulseIndex=None, ToF=0, xmin=None, xmax=None, ymin=None, ymax=None, figsize=(12, 8), savename=False, logScale=False, showGaussianFit=False):
 
         train_ids = self.data.indexes["pulse"].get_level_values("trainId")
         pulse_ids = self.data.indexes["pulse"].get_level_values("pulseId")
@@ -1100,7 +1102,8 @@ class PeakFinder(Configurable):
         if not isinstance(self.results, pd.DataFrame):
             print("Warning: results is not a DataFrame. Call .dataframe() first.")
             ax.legend()
-            plt.savefig("traces.png", dpi=600)
+            if savename is not False:
+                plt.savefig(f"{savename}.png", dpi=600)
             return self
             
         for peakNo in self.results["peakNo"].unique():
