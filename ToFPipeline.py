@@ -917,8 +917,9 @@ class PeakFinder(Configurable):
             results_list.append(results_det)
     
         self.results = xr.concat(results_list, dim="detector")
-        self.results = self.results["pos"]+roi[0] if roi[0] is not None else self.results["pos"]
         self.results = self.results.persist()
+        self.dataframe()
+        self.results["pos"] = (self.results["pos"]+roi[0]).astype(int) if roi[0] is not None else self.results["pos"].astype(int)
         return self
 
 
@@ -989,8 +990,8 @@ class PeakFinder(Configurable):
                     
                     # Plot baseline if available
                     if "baseline left" in peak.columns and "baseline right" in peak.columns:
-                        baselineL = peak["baseline left"].iloc[0]
-                        baselineR = peak["baseline right"].iloc[0]
+                        baselineL = peak["baseline left"].iloc[0]+pos
+                        baselineR = peak["baseline right"].iloc[0]+pos
                         if baselineL is not False and not pd.isna(baselineL) and not pd.isna(baselineR):
                             ax[j].plot([int(baselineL), int(baselineR)], [trace[int(baselineL)], trace[int(baselineR)]], color=tolGreen, linestyle='--')
                             baselineAdjustedTrace = trace.to_numpy().copy()
@@ -1110,14 +1111,16 @@ class PeakFinder(Configurable):
             height = peak["height"].iloc[0]
             widthl = peak["width left"].iloc[0]
             widthr = peak["width right"].iloc[0]
-            baselineL = peak["baseline left"].iloc[0]
-            baselineR = peak["baseline right"].iloc[0]
+            baselineL = peak["baseline left"].iloc[0]+pos
+            baselineR = peak["baseline right"].iloc[0]+pos
             ax.hlines(y=height/2, xmin=pos+widthl, xmax=pos+widthr, colors=tolRed, label='FWHM' if peakNo == 0 else '')
             ax.scatter(x=pos, y=height, color=tolRed, label='Peak' if peakNo == 0 else '')
             
             # Plot baseline if available
             if "baseline left" in peak.columns and "baseline right" in peak.columns:
                 if baselineL is not False and not pd.isna(baselineL) and not pd.isna(baselineR):
+                    baselineL += pos
+                    baselineR += pos
                     ax.plot([int(baselineL), int(baselineR)], [trace[int(baselineL)], trace[int(baselineR)]], color=tolGreen, linestyle='--', label='Baseline' if peakNo == 0 else '')
                     baselineAdjustedTrace = trace.to_numpy().copy()
                     
@@ -2438,7 +2441,7 @@ def findPeakBaseline(trace, peak, slopeLength=5, maxSlope=4, startOffsetL=0, sta
     if idxR == idxL:
         return trace, False, False
     
-    return trace, int(baselinePointL), int(baselinePointR)
+    return trace, int(baselinePointL-peak), int(baselinePointR-peak)
 
 def findPeaksInTrace(trace, peakNo , cutOff = -100, widthFactor=2, widthFraction=0.5, symmetric = True):
     results = []
@@ -2499,9 +2502,11 @@ def findPeak_np(trace, widthFactor=2, symmetric=False, maxWidth=20, minWidth=Fal
                 startOffsetR = prelim_wR  # positive
         
         # Use the original unzeroed trace for baseline slope analysis
-        _, baselineL, baselineR = findPeakBaseline(analysisTrace, peak, slopeLength=slopeLength, maxSlope=maxSlope, startOffsetL=startOffsetL, startOffsetR=startOffsetR)
+        _, baseL, baseR = findPeakBaseline(analysisTrace, peak, slopeLength=slopeLength, maxSlope=maxSlope, startOffsetL=startOffsetL, startOffsetR=startOffsetR)
         # Apply baseline subtraction to the analysis trace
-        if baselineL is not False and baselineR is not False:
+        if baseL is not False and baseR is not False:
+            baselineL = peak + baseL
+            baselineR = peak + baseR
             blSlope = (analysisTrace[baselineR] - analysisTrace[baselineL]) / (baselineR - baselineL)
             blOffset = analysisTrace[baselineL] - blSlope * baselineL
             for k in range(baselineL, baselineR + 1):
@@ -2544,7 +2549,7 @@ def findPeak_np(trace, widthFactor=2, symmetric=False, maxWidth=20, minWidth=Fal
     area = analysisTrace[start:stop].sum()
     trace[start_zero:stop_zero] = 0
 
-    return trace, peak, height, widthL, widthR, area, baselineL, baselineR
+    return trace, peak, height, widthL, widthR, area, baseL, baseR
 
 def findPeaksInTrace_np(trace, peakNo, cutOff=-100, widthFactor=2,widthFraction=0.5, symmetric=True, maxWidth=30, minWidth=False,slopeLength=5, maxSlope=4, slopeStartHeight=None):
     results = []
