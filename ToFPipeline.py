@@ -917,7 +917,7 @@ class PeakFinder(Configurable):
             results_list.append(results_det)
     
         self.results = xr.concat(results_list, dim="detector")
-
+        self.results = self.results["pos"]+roi[0] if roi[0] is not None else self.results["pos"]
         self.results = self.results.persist()
         return self
 
