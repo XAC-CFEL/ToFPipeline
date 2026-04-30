@@ -1717,7 +1717,7 @@ class Calibrate(Configurable):
                 
 
     def plotEnergy(self, peakNo = None, plotReg = True, relPos=False, ymin=None, ymax=None, xmin=None, xmax=None):
-        peakNo = (peakNo or self.config.get("peakNo", 1))
+        peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 0)
         plotYNum = int(np.ceil(self.results["detector"].nunique()/4))
         fig, ax = plt.subplots(plotYNum,4,figsize=(12, 3*plotYNum),sharex='all', sharey='all')
 
