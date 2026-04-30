@@ -1689,7 +1689,7 @@ class Calibrate(Configurable):
         for energy in self.results["Photon Energy"].unique():
             for ToF in self.results["detector"].unique():
                 selData = self.results[(self.results["peakNo"]==peakNo)&(self.results["Photon Energy"]==energy)&(self.results["detector"]==ToF)]
-                pos = selData["pos"].mean()
+                pos = selData["pos"].mean().astype(int)
                 trace = selData[intMethod].mean()
                 theta = np.deg2rad(selData["Angles"].to_numpy())
                 g = polarization_model(theta, Plin=setPlin, phi=setPhi,beta2=setBeta)
