@@ -1694,7 +1694,7 @@ class Calibrate(Configurable):
                 theta = np.deg2rad(selData["Angles"].to_numpy())
                 g = polarization_model(theta, Plin=setPlin, phi=setPhi,beta2=setBeta)
                 transPar = g/trace
-                transmissionParam.append({"detector": ToF, "Photon Energy": energy,"sample": pos, "Transmission Coefficient": transPar[0]})
+                transmissionParam.append({"detector": ToF, "Photon Energy": energy,"pos": pos, "Transmission Coefficient": transPar[0]})
         self.transmissionParam = pd.DataFrame(transmissionParam)
         return self
 
@@ -1772,8 +1772,8 @@ class Fitter(Configurable):
         peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 0)
         transParam = transParam if transParam is not None else self.params
         fullTheta = np.linspace(0,2*np.pi,16,endpoint=False)
-        area = self.results[self.results["peakNo"]==peakNo][["pos","fwhm area","height","detector","Angles"]].sort_values("pos")
-        calib = transParam[transParam["pos","detector","Transmission Coefficient"]].sort_values("pos")
+        area = self.results[self.results["peakNo"]==peakNo][["pos","fwhm area","height","detector","Angles"]].sort_values("detector")
+        calib = transParam[["sample","detector","Transmission Coefficient"]].sort_values("detector")
         calibArea = pd.merge_asof(area,calib,on="pos",by="detector",direction="nearest")
         calibArea["calibValue"] = calibArea[intMethod] * calibArea["Transmission Coefficient"] #/ max(calibArea[intMethod])
             
