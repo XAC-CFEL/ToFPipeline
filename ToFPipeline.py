@@ -1768,7 +1768,7 @@ class Fitter(Configurable):
         self.params = params
 
 
-    def pol(self, transParam=None, peakNo=None, beta=0, setPlin=None, fitBeta=False, intMethod="height", plot=True):
+    def pol(self, transParam=None, peakNo=None, beta=0, setPlin=None, fitBeta=False, intMethod="height", plot=True, orientation="N", direction=1):
         peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 0)
         transParam = transParam if transParam is not None else self.params
         fullTheta = np.linspace(0,2*np.pi,16,endpoint=False)
@@ -1882,8 +1882,8 @@ class Fitter(Configurable):
                 label += f", beta: {beta2_fit:.4f}"
             ax.plot(theta_fit, intensity_fit, label=label, color="green")
             ax.set_yticks([])
-            ax.set_theta_zero_location("N")  # 0° at top
-            ax.set_theta_direction(-1)       # clockwise
+            ax.set_theta_zero_location(orientation)  # 0° at top
+            ax.set_theta_direction(direction)       # clockwise
             ax.legend(loc="lower right")
             plt.savefig("pol.png", dpi=600)
             plt.show()
