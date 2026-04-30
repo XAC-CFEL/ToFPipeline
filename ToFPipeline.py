@@ -942,8 +942,6 @@ class PeakFinder(Configurable):
 
         plotYNum = int(np.ceil(len(np.unique(self.data["detector"]))/4))
         fig, ax = plt.subplots(plotYNum,4,figsize=(12, 3*plotYNum),sharex='all', sharey='all')
-        plt.ylabel ('Signal')
-        plt.xlabel ('Sample')
         ax = ax.flatten()
         j=0
         if ymax is None:
@@ -1053,6 +1051,8 @@ class PeakFinder(Configurable):
                             if gaussCount > 1:
                                 ax[j].plot(xFit, totalYFit, color=tolBlack, linewidth=2.5, linestyle='-', alpha=0.8)
             j+=1
+        fig.supxlabel("Sample")
+        fig.supylabel("Intensity")
         if savename is not False:
             plt.savefig(f"{savename}.png",dpi=600)
         return self
@@ -1722,8 +1722,7 @@ class Calibrate(Configurable):
         plotYNum = int(np.ceil(self.results["detector"].nunique()/4))
         fig, ax = plt.subplots(plotYNum,4,figsize=(12, 3*plotYNum),sharex='all', sharey='all')
 
-        plt.ylabel ('Photon Energy')
-        plt.xlabel ('Sample')
+
         ax = ax.flatten()
         j=0
             
@@ -1750,7 +1749,8 @@ class Calibrate(Configurable):
             ax[j].grid(True)
             ax[j].plot(xdata,ydata,marker='.', color = 'teal',  markersize=2 ,alpha=1,linewidth = 0)
             j+=1
-
+        fig.supxlabel("Sample")
+        fig.supylabel("Photon Energy")
         plt.savefig("Energy.png",dpi=600)
         plt.show()
         return self
