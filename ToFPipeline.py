@@ -1773,7 +1773,7 @@ class Fitter(Configurable):
         transParam = transParam if transParam is not None else self.params
         fullTheta = np.linspace(0,2*np.pi,16,endpoint=False)
         area = self.results[self.results["peakNo"]==peakNo][["pos","fwhm area","height","detector","Angles"]].sort_values("pos")
-        calib = transParam[["pos","detector","Transmission Coefficient"]].sort_values("pos")
+        calib = transParam[transParam["pos","detector","Transmission Coefficient"]].sort_values("pos")
         calibArea = pd.merge_asof(area,calib,on="pos",by="detector",direction="nearest")
         calibArea["calibValue"] = calibArea[intMethod] * calibArea["Transmission Coefficient"] #/ max(calibArea[intMethod])
             
