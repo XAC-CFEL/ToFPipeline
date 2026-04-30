@@ -1114,8 +1114,8 @@ class PeakFinder(Configurable):
             height = peak["height"].iloc[0]
             widthl = peak["width left"].iloc[0]
             widthr = peak["width right"].iloc[0]
-            baselineL = peak["baseline left"].iloc[0]+pos
-            baselineR = peak["baseline right"].iloc[0]+pos
+            baselineL = peak["baseline left"].iloc[0]
+            baselineR = peak["baseline right"].iloc[0]
             ax.hlines(y=height/2, xmin=pos+widthl, xmax=pos+widthr, colors=tolRed, label='FWHM' if peakNo == 0 else '')
             ax.scatter(x=pos, y=height, color=tolRed, label='Peak' if peakNo == 0 else '')
             
