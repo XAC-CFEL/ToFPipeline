@@ -1776,7 +1776,7 @@ class Fitter(Configurable):
         calib = transParam[["pos","detector","Transmission Coefficient"]].sort_values("pos")
         calibArea = pd.merge_asof(area,calib,on="pos",by="detector",direction="nearest")
         calibArea["calibValue"] = calibArea[intMethod] * calibArea["Transmission Coefficient"] #/ max(calibArea[intMethod])
-            
+        calibArea.dropna(subset=["calibValue"], inplace=True)
         theta = calibArea["Angles"].values*np.pi/180
         trace = calibArea["calibValue"]
         maxTrace = max(trace)#[0]
