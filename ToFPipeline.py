@@ -1680,7 +1680,7 @@ class Calibrate(Configurable):
         self.energyParam = pd.DataFrame(energyParam)
         return self
 
-    def transmission(self, peakNo=None, setBeta=None, setPhi=None, setPlin=None,intMethod="fwhm area"):
+    def transmission(self, peakNo=None, setBeta=None, setPhi=None, setPlin=None,intMethod="height"):
         transmissionParam = []
         """
         beta = beta or self.config.get("beta",0)
@@ -1689,11 +1689,12 @@ class Calibrate(Configurable):
         for energy in self.results["Photon Energy"].unique():
             for ToF in self.results["detector"].unique():
                 selData = self.results[(self.results["peakNo"]==peakNo)&(self.results["Photon Energy"]==energy)&(self.results["detector"]==ToF)]
+                pos = selData["pos"].mean()
                 trace = selData[intMethod].mean()
                 theta = np.deg2rad(selData["Angles"].to_numpy())
                 g = polarization_model(theta, Plin=setPlin, phi=setPhi,beta2=setBeta)
                 transPar = g/trace
-                transmissionParam.append({"detector": ToF, "Photon Energy": energy,"sample": selData["pos"], "Transmission Coefficient": transPar[0]})
+                transmissionParam.append({"detector": ToF, "Photon Energy": energy,"sample": pos, "Transmission Coefficient": transPar[0]})
         self.transmissionParam = pd.DataFrame(transmissionParam)
         return self
 
