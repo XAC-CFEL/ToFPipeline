@@ -2518,6 +2518,8 @@ def findPeak_np(trace, widthFactor=2, symmetric=False, maxWidth=20, minWidth=Fal
     else:
         baselineL = None
         baselineR = None
+        baseL = None
+        baseR = None
     
     # Compute height and FWHM from the clean baseline-adjusted trace
     height = analysisTrace[peak]
