@@ -1768,18 +1768,7 @@ class Fitter(Configurable):
         self.params = params
 
 
-    def pol(self,
-        transParam=None,
-        peakNo=None,
-        beta=0,
-        setPlin=None,
-        fitBeta=False,
-        intMethod="height",
-        groupParam=True,
-        plot=True,
-        orientation="N",
-        direction=1
-    ):
+    def pol(self, transParam=None, peakNo=None, beta=0, setPlin=None, setPhi=None, fitBeta=False, intMethod="height", groupParam=True, plot=True, orientation="N", direction=1):
         peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 0)
         transParam = transParam if transParam is not None else self.params
 
@@ -1840,9 +1829,39 @@ class Fitter(Configurable):
 
         fit_kws = dict(method='trf', ftol=1e-9, xtol=1e-9, gtol=1e-9, maxfev=100000)
 
-        if setPlin is not None:
+        beta0 = beta if beta != 0 else 1.0
+
+        if setPlin is not None and setPhi is not None:
+            # --- Both Plin and phi fixed; fit scale (and optionally beta2) ---
+            phi_rad_fix = np.deg2rad(setPhi)
+            if fitBeta:
+                def model(theta, beta2, scale):
+                    return polarization_model(theta, Plin=setPlin, phi=phi_rad_fix, beta2=beta2, scale=scale)
+                p0     = [beta0, 1.0]
+                bounds = ([-4.0, 0.0], [4.0, 10.0])
+                popt, pcov = curve_fit(model, theta, trace, p0=p0, bounds=bounds, **fit_kws)
+                beta2_fit, scale_fit = popt
+                sigma_beta2 = np.sqrt(pcov[0, 0])
+                sigma_scale = np.sqrt(pcov[1, 1])
+            else:
+                def model(theta, scale):
+                    return polarization_model(theta, Plin=setPlin, phi=phi_rad_fix, beta2=beta, scale=scale)
+                p0     = [1.0]
+                bounds = ([0.0], [10.0])
+                popt, pcov = curve_fit(model, theta, trace, p0=p0, bounds=bounds, **fit_kws)
+                scale_fit, = popt
+                beta2_fit = beta
+                sigma_beta2 = 0.0
+                sigma_scale = np.sqrt(pcov[0, 0])
+
+            Plin_fit    = setPlin
+            phi_rad_fit = phi_rad_fix
+            phi_fit     = setPhi
+            sigma_P     = 0.0
+            sigma_phi   = 0.0
+
+        elif setPlin is not None:
             # --- Plin is fixed; fit phi (and optionally beta2) ---
-            beta0 = beta if beta != 0 else 1.0
             if fitBeta:
                 def model(theta, phi, beta2, scale):
                     return polarization_model(theta, Plin=setPlin, phi=phi, beta2=beta2, scale=scale)
@@ -1869,10 +1888,38 @@ class Fitter(Configurable):
             phi_fit   = np.rad2deg(phi_rad_fit)
             sigma_P   = 0.0  # Plin was fixed
 
+        elif setPhi is not None:
+            # --- phi is fixed; fit Plin (and optionally beta2) ---
+            phi_rad_fix = np.deg2rad(setPhi)
+            if fitBeta:
+                def model(theta, Plin, beta2, scale):
+                    return polarization_model(theta, Plin=Plin, phi=phi_rad_fix, beta2=beta2, scale=scale)
+                p0     = [0.5, beta0, 1.0]
+                bounds = ([0.0, -4.0, 0.0], [2.0, 4.0, 10.0])
+                popt, pcov = curve_fit(model, theta, trace, p0=p0, bounds=bounds, **fit_kws)
+                Plin_fit, beta2_fit, scale_fit = popt
+                sigma_P     = np.sqrt(pcov[0, 0])
+                sigma_beta2 = np.sqrt(pcov[1, 1])
+                sigma_scale = np.sqrt(pcov[2, 2])
+            else:
+                def model(theta, Plin, scale):
+                    return polarization_model(theta, Plin=Plin, phi=phi_rad_fix, beta2=beta, scale=scale)
+                p0     = [0.5, 1.0]
+                bounds = ([0.0, 0.0], [2.0, 10.0])
+                popt, pcov = curve_fit(model, theta, trace, p0=p0, bounds=bounds, **fit_kws)
+                Plin_fit, scale_fit = popt
+                beta2_fit = beta
+                sigma_P     = np.sqrt(pcov[0, 0])
+                sigma_beta2 = 0.0
+                sigma_scale = np.sqrt(pcov[1, 1])
+
+            phi_rad_fit = phi_rad_fix
+            phi_fit     = setPhi
+            sigma_phi   = 0.0  # phi was fixed
+
         else:
             # --- A/B parameterisation (A = Plin·cos2φ, B = Plin·sin2φ) ---
             if fitBeta:
-                beta0 = beta if beta != 0 else 1.0
                 def model(theta, A, B, beta2, scale):
                     return sepModel(theta, A, B, beta2=beta2, scale=scale)
                 p0     = [0.0, 0.0, beta0, 1.0]
