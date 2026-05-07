@@ -2641,9 +2641,9 @@ def findPeak_np(trace, widthFactor=2, symmetric=False, maxWidth=20, minWidth=Fal
     if widthL == 0 and left_slice[0] >= height*widthFraction:
         widthL = -min(maxWidth, len(left_slice)-1)
 
-    # For symmetric peaks, just use max of L/R
+    # For symmetric peaks, just use L and mirror it
     if symmetric:
-        w = max(abs(widthL), widthR)
+        w = widthL
         widthL, widthR = -w, w
 
     # Zero out peak region on the working trace (for iterative peak finding)
