@@ -1057,7 +1057,7 @@ class PeakFinder(Configurable):
             plt.savefig(f"{savename}.png",dpi=600)
         return self
     
-    def plotSingle(self, trainIndex=None, pulseIndex=None, ToF=0, xmin=None, xmax=None, ymin=None, ymax=None, figsize=(12, 8), savename=False, logScale=False, showGaussianFit=False):
+    def plotSingle(self, trainIndex=None, pulseIndex=None, ToF=0, xmin=None, xmax=None, ymin=None, ymax=None, figsize=(12, 8), savename=False,widthFraction=0.5, logScale=False, showGaussianFit=False):
 
         train_ids = self.data.indexes["pulse"].get_level_values("trainId")
         pulse_ids = self.data.indexes["pulse"].get_level_values("pulseId")
@@ -1116,7 +1116,7 @@ class PeakFinder(Configurable):
             widthr = peak["width right"].iloc[0]
             baselineL = peak["baseline left"].iloc[0]
             baselineR = peak["baseline right"].iloc[0]
-            ax.hlines(y=height/2, xmin=pos+widthl, xmax=pos+widthr, colors=tolRed, label='FWHM' if peakNo == 0 else '')
+            ax.hlines(y=height*widthFraction, xmin=pos+widthl, xmax=pos+widthr, colors=tolRed, label='FWHM' if peakNo == 0 else '')
             ax.scatter(x=pos, y=height, color=tolRed, label='Peak' if peakNo == 0 else '')
             
             # Plot baseline if available
