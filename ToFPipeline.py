@@ -1768,18 +1768,75 @@ class Fitter(Configurable):
         self.params = params
 
 
-    def pol(self, transParam=None, peakNo=None, beta=0, setPlin=None, fitBeta=False, intMethod="height", plot=True, orientation="N", direction=1):
+    def pol(self,
+        transParam=None,
+        peakNo=None,
+        beta=0,
+        setPlin=None,
+        fitBeta=False,
+        intMethod="height",
+        groupParam=True,
+        plot=True,
+        orientation="N",
+        direction=1
+    ):
         peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 0)
         transParam = transParam if transParam is not None else self.params
-        fullTheta = np.linspace(0,2*np.pi,16,endpoint=False)
-        area = self.results[self.results["peakNo"]==peakNo][["pos","fwhm area","height","detector","Angles"]].sort_values("pos")
-        calib = transParam[["pos","detector","Transmission Coefficient"]].sort_values("pos")
-        calibArea = pd.merge_asof(area,calib,on="pos",by="detector",direction="nearest")
-        calibArea["calibValue"] = calibArea[intMethod] * calibArea["Transmission Coefficient"] #/ max(calibArea[intMethod])
+
+        fullTheta = np.linspace(0, 2*np.pi, 16, endpoint=False)
+
+        area = self.results[ self.results["peakNo"] == peakNo][["pos","fwhm area","height","detector","Angles","Photon Energy"]].copy()
+        if groupParam:
+            scores = []
+            for pe, calib_group in transParam.groupby("Photon Energy"):
+                calib_group = calib_group[["pos","detector","Transmission Coefficient","Photon Energy"]].copy()
+
+                calib_group = calib_group.rename(columns={"pos": "calib_pos"})
+
+                merged = pd.merge_asof(
+                    area.sort_values("pos"),
+                    calib_group.sort_values("calib_pos"),
+                    left_on="pos",
+                    right_on="calib_pos",
+                    by="detector",
+                    direction="nearest"
+                )
+                diff = merged["pos"] - merged["calib_pos"]
+                diff = diff.dropna()
+
+                if len(diff) == 0:
+                    continue
+                score = np.sqrt(np.mean(diff**2))
+                scores.append((pe, score))
+
+            if len(scores) == 0:
+                raise ValueError("No matching calibration sets found.")
+            best_pe = min(scores, key=lambda x: x[1])[0]
+
+            #print(f"Using calibration Photon Energy: {best_pe}")
+            best_calib = transParam[transParam["Photon Energy"] == best_pe][["pos","detector","Transmission Coefficient","Photon Energy"]].copy()
+            best_calib = best_calib.rename(columns={"pos": "calib_pos"})
+
+            calibArea = pd.merge_asof(
+                area.sort_values("pos"),
+                best_calib.sort_values("calib_pos"),
+                left_on="pos",
+                right_on="calib_pos",
+                by="detector",
+                direction="nearest"
+            )
+        else:
+            calib = transParam[["pos","detector","Transmission Coefficient","Photon Energy"]].sort_values("pos")
+            calibArea = pd.merge_asof(area, calib, on="pos", by="detector", direction="nearest")
+
+        calibArea = calibArea.sort_values("detector").reset_index(drop=True)
+        calibArea["calibValue"] = (calibArea[intMethod] * calibArea["Transmission Coefficient"])
         calibArea.dropna(subset=["calibValue"], inplace=True)
-        theta = calibArea["Angles"].values*np.pi/180
+
+        theta = calibArea["Angles"].values * np.pi / 180
         trace = calibArea["calibValue"]
-        maxTrace = max(trace)#[0]
+
+        maxTrace = max(trace)
 
         fit_kws = dict(method='trf', ftol=1e-9, xtol=1e-9, gtol=1e-9, maxfev=100000)
 
