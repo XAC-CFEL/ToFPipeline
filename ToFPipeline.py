@@ -1702,7 +1702,7 @@ class Calibrate(Configurable):
         plotYNum = int(np.ceil(self.results["detector"].nunique()/4))
         fig, ax = plt.subplots(plotYNum,4,figsize=(12, 3*plotYNum),sharex='all', sharey='all')
         plt.ylabel ('Transmission Coefficient')
-        plt.xlabel ('Photon Energy')
+        plt.xlabel ('Kinetic Energy')
         ax = ax.flatten()
         j=0
         for ToF in self.transmissionParam["detector"].unique():
@@ -1750,7 +1750,7 @@ class Calibrate(Configurable):
             ax[j].plot(xdata,ydata,marker='.', color = 'teal',  markersize=2 ,alpha=1,linewidth = 0)
             j+=1
         fig.supxlabel("Sample")
-        fig.supylabel("Photon Energy")
+        fig.supylabel("Kinetic Energy")
         plt.savefig("Energy.png",dpi=600)
         plt.show()
         return self
