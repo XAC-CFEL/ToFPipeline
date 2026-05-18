@@ -694,12 +694,15 @@ class PeakFinder(Configurable):
         self.results = None
 
     def filterByIntensity(self,pulseEnergy, lowerThreshold=None, upperThreshold=None):
-        lowerThreshold = (lowerThreshold or self.config.get("lowerThreshold", None))
-        upperThreshold = (upperThreshold or self.config.get("upperThreshold", None))
+        lowerThreshold = lowerThreshold if lowerThreshold is not None else self.config.get("lowerThreshold", None)
+        upperThreshold = upperThreshold if upperThreshold is not None else self.config.get("upperThreshold", None)
         if lowerThreshold is not None or upperThreshold is not None:
-            selection = pulseEnergy[
-                (pulseEnergy["Pulse Energy"] > lowerThreshold) &
-                (pulseEnergy["Pulse Energy"] < upperThreshold)]
+            mask = pd.Series(True, index=pulseEnergy.index)
+            if lowerThreshold is not None:
+                mask &= pulseEnergy["Pulse Energy"] > lowerThreshold
+            if upperThreshold is not None:
+                mask &= pulseEnergy["Pulse Energy"] < upperThreshold
+            selection = pulseEnergy[mask]
             idx = pd.MultiIndex.from_frame(selection[["trainId","pulseId"]],
                                names=["trainId","pulseId"])
             self.data = self.data.sel(pulse=idx)
