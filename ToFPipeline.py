@@ -271,7 +271,7 @@ class FLASHLoader(Loader):
 
         if self.key in ("all", "GMD"):
             gmdData = self.gmd.load(daq_run=self.runNo).sel(GMD_dim_1=0)
-            self.pulseEnergy = gmd.to_dataframe().reset_index().drop("GMD_dim_1",axis=1).rename(columns={"GMD_dim_2":"pulseId","GMD":"Pulse Energy","train_id":"trainId"})
+            self.pulseEnergy = gmdData.to_dataframe().reset_index().drop("GMD_dim_1",axis=1).rename(columns={"GMD_dim_2":"pulseId","GMD":"Pulse Energy","train_id":"trainId"})
 
         return self
 
