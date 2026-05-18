@@ -736,10 +736,12 @@ class PeakFinder(Configurable):
         if stackTrains == True:
             chunks = []
             uniqueTrainIds = np.unique(trainIds)
-                
+
+            if trainStackSize == 0:
+                raise ValueError("No trains available after filtering")
             nTrainStacks = len(uniqueTrainIds)//trainStackSize
             if nTrainStacks == 0:
-                raise ValueError("pulseStackSize larger than available trains")
+                raise ValueError("trainStackSize larger than available trains")
             
             for i in range(nTrainStacks):
                 selTrainIds = uniqueTrainIds[i*trainStackSize:(i+1)*trainStackSize]
@@ -764,9 +766,11 @@ class PeakFinder(Configurable):
         if stackPulses:
             chunks = []
             uniquePulsIds = np.unique(pulseIds)
+            if pulseStackSize == 0:
+                raise ValueError("No pulses available after filtering")
             nPulseStacks = len(uniquePulsIds)//pulseStackSize
             if nPulseStacks == 0:
-                raise ValueError("pulseStackSize larger than available trains")
+                raise ValueError("pulseStackSize larger than available pulses")
             
             for i in range(pulseStackStart,pulseStackStop,pulseStackSize):
                 selPulseIds = uniquePulsIds[i:i+1]
