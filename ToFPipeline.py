@@ -203,6 +203,7 @@ class FLASHLoader(Loader):
             self.da = da
             self.ballchamber = ballchamber
             self.opis = opis
+            self.gmd = example.GMD
         self.proposal = proposal
         self.runNo = runNo
         self._run = None
@@ -269,7 +270,7 @@ class FLASHLoader(Loader):
             self.photonEnergy = (self.photonEnergy.reset_index().rename(columns={"index": "trainId"}))
 
         if self.key in ("all", "GMD"):
-            gmd = self.example.GMD.load(daq_run=self.runNo).sel(GMD_dim_1=0)
+            gmdData = self.gmd.load(daq_run=self.runNo).sel(GMD_dim_1=0)
             self.pulseEnergy = gmd.to_dataframe().reset_index().drop("GMD_dim_1",axis=1).rename(columns={"GMD_dim_2":"pulseId","GMD":"Pulse Energy","train_id":"trainId"})
 
         return self
