@@ -274,15 +274,6 @@ class FLASHLoader(Loader):
             self.pulseEnergy = gmdData.to_dataframe().reset_index().drop("GMD_dim_1",axis=1).rename(columns={"GMD_dim_2":"pulseId","GMD":"Pulse Energy","train_id":"trainId"})
 
         return self
-    
-    def filterByIntensity(self,intensityThreshold=None):
-        intensityThreshold = (
-            intensityThreshold
-            or self.config.get("intensityThreshold", None))
-        if intensityThreshold is not None and self.pulseEnergy is not None:
-            mask = self.pulseEnergy["Pulse Energy"] > intensityThreshold
-            self.data = self.data.where(mask, drop=True)                 
-        return self
 
     def defaultPreprocessing(self,ToF=None,baselineRegion=None,trainStart=None,trainStop=None):
         ToF = ToF or self.config.get("ToF", [0])
@@ -701,6 +692,18 @@ class PeakFinder(Configurable):
         super().__init__(config)
         self.data = data
         self.results = None
+
+    def filterByIntensity(self, lowerThreshold=None, upperThreshold=None):
+        lowerThreshold = (lowerThreshold or self.config.get("lowerThreshold", None))
+        upperThreshold = (upperThreshold or self.config.get("upperThreshold", None))
+        if lowerThreshold is not None or upperThreshold is not None:
+            selection = self.pulseEnergy[
+                (self.pulseEnergy["Pulse Energy"] > lowerThreshold) &
+                (self.pulseEnergy["Pulse Energy"] < upperThreshold)]
+            idx = pd.MultiIndex.from_frame(selection[["trainId","pulseId"]],
+                               names=["trainId","pulseId"])
+            self.data = self.data.sel(pulse=idx)
+        return self
 
     def stack(self, stackTrains=None, trainStackSize=None, stackPulses=None, pulseStackStart=None, pulseStackStop=None, pulseStackSize=None, pulseStackStep=None):
         pulseIndex = self.data["pulse"].to_index()
