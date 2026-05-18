@@ -693,23 +693,13 @@ class PeakFinder(Configurable):
         self.data = data
         self.results = None
 
-    def filterByIntensity(self,pulseEnergy, lowerThreshold=None, upperThreshold=None):
-        lowerThreshold = lowerThreshold if lowerThreshold is not None else self.config.get("lowerThreshold", None)
-        upperThreshold = upperThreshold if upperThreshold is not None else self.config.get("upperThreshold", None)
-        if lowerThreshold is not None or upperThreshold is not None:
-            mask = pd.Series(True, index=pulseEnergy.index)
-            if lowerThreshold is not None:
-                mask &= pulseEnergy["Pulse Energy"] > lowerThreshold
-            if upperThreshold is not None:
-                mask &= pulseEnergy["Pulse Energy"] < upperThreshold
-            selection = pulseEnergy[mask]
-            idx = pd.MultiIndex.from_arrays(
-                [selection["trainId"].astype(int), selection["pulseId"].astype(int)],
-                names=["trainId", "pulseId"]
-            )
-            pulseIndex = self.data["pulse"].to_index()
-            keepMask = pulseIndex.isin(idx)
-            self.data = self.data.isel(pulse=keepMask)
+    def filterByIntensity(self, pulseEnergy, threshold=None):
+        threshold = threshold if threshold is not None else self.config.get("intensityThreshold", None)
+        if threshold is not None:
+            selection = pulseEnergy[pulseEnergy["Pulse Energy"] > threshold]
+            idx = pd.MultiIndex.from_frame(selection[["trainId", "pulseId"]],
+                                           names=["trainId", "pulseId"])
+            self.data = self.data.sel(pulse=idx)
         return self
 
     def stack(self, stackTrains=None, trainStackSize=None, stackPulses=None, pulseStackStart=None, pulseStackStop=None, pulseStackSize=None, pulseStackStep=None):
