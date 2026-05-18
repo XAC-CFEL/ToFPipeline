@@ -274,6 +274,15 @@ class FLASHLoader(Loader):
             self.pulseEnergy = gmdData.to_dataframe().reset_index().drop("GMD_dim_1",axis=1).rename(columns={"GMD_dim_2":"pulseId","GMD":"Pulse Energy","train_id":"trainId"})
 
         return self
+    
+    def filterByIntensity(self,intensityThreshold=None):
+        intensityThreshold = (
+            intensityThreshold
+            or self.config.get("intensityThreshold", None))
+        if intensityThreshold is not None and self.pulseEnergy is not None:
+            mask = self.pulseEnergy["Pulse Energy"] > intensityThreshold
+            self.data = self.data.where(mask, drop=True)                 
+        return self
 
     def defaultPreprocessing(self,ToF=None,baselineRegion=None,trainStart=None,trainStop=None):
         ToF = ToF or self.config.get("ToF", [0])
