@@ -199,7 +199,7 @@ class FLASHLoader(Loader):
         if self.className == "FLASHLoader":
             #print("Using ",self.className)
             import dask.array as da
-            from fab.magic import config, beamtime, ballchamber, opis, timing
+            from fab.magic import config, beamtime, ballchamber, opis, timing, example
             self.da = da
             self.ballchamber = ballchamber
             self.opis = opis
@@ -215,6 +215,7 @@ class FLASHLoader(Loader):
         self.angles["Angles"] = theta
         self.xmg = None
         self.photonEnergy = None
+        self.pulseEnergy = None
     
     def load(self, key="all", trainStart=None, trainStop=None, trainStep = None, pulseStart=None, pulseStop=None, pulseStep=None,roi=[None,None]):
         self.key = key or self.config.get("key", "all")
@@ -266,6 +267,10 @@ class FLASHLoader(Loader):
             self.photonEnergy = self.photonEnergy.set_index("trainId").reindex(fullTrainIds)
             self.photonEnergy["Photon Energy"] = self.photonEnergy["Photon Energy"].interpolate()
             self.photonEnergy = (self.photonEnergy.reset_index().rename(columns={"index": "trainId"}))
+
+        if self.key in ("all", "GMD"):
+            gmd = self.example.GMD.load(daq_run=self.runNo).sel(GMD_dim_1=0)
+            self.pulseEnergy = gmd.to_dataframe().reset_index().drop("GMD_dim_1",axis=1).rename(columns={"GMD_dim_2":"pulseId","GMD":"Pulse Energy","train_id":"trainId"})
 
         return self
 
@@ -941,7 +946,7 @@ class PeakFinder(Configurable):
         print(f"Random trainId: {trainId}, pulseId: {pulseId}")
 
         plotYNum = int(np.ceil(len(np.unique(self.data["detector"]))/4))
-        fig, ax = plt.subplots(plotYNum,4,figsize=(12, 3*plotYNum),sharex='all', sharey='all')
+        fig, ax = plt.subplots(plotYNum,4,figsize=(8, 2*plotYNum),sharex='all', sharey='all')
         ax = ax.flatten()
         j=0
         if ymax is None:
@@ -1057,7 +1062,7 @@ class PeakFinder(Configurable):
             plt.savefig(f"{savename}.png",dpi=600)
         return self
     
-    def plotSingle(self, trainIndex=None, pulseIndex=None, ToF=0, xmin=None, xmax=None, ymin=None, ymax=None, figsize=(12, 8), savename=False,widthFraction=0.5, logScale=False, showGaussianFit=False):
+    def plotSingle(self, trainIndex=None, pulseIndex=None, ToF=0, xmin=None, xmax=None, ymin=None, ymax=None, figsize=(8, 6), savename=False,widthFraction=0.5, logScale=False, showGaussianFit=False):
 
         train_ids = self.data.indexes["pulse"].get_level_values("trainId")
         pulse_ids = self.data.indexes["pulse"].get_level_values("pulseId")
@@ -1700,7 +1705,7 @@ class Calibrate(Configurable):
 
     def plotTransmission(self,ymin=None,ymax=None):
         plotYNum = int(np.ceil(self.results["detector"].nunique()/4))
-        fig, ax = plt.subplots(plotYNum,4,figsize=(12, 3*plotYNum),sharex='all', sharey='all')
+        fig, ax = plt.subplots(plotYNum,4,figsize=(8, 2*plotYNum),sharex='all', sharey='all')
         plt.ylabel ('Transmission Coefficient')
         plt.xlabel ('Sample')
         ax = ax.flatten()
@@ -1720,7 +1725,7 @@ class Calibrate(Configurable):
     def plotEnergy(self, peakNo = None, plotReg = True, relPos=False, ymin=None, ymax=None, xmin=None, xmax=None):
         peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 0)
         plotYNum = int(np.ceil(self.results["detector"].nunique()/4))
-        fig, ax = plt.subplots(plotYNum,4,figsize=(12, 3*plotYNum),sharex='all', sharey='all')
+        fig, ax = plt.subplots(plotYNum,4,figsize=(8, 2*plotYNum),sharex='all', sharey='all')
 
 
         ax = ax.flatten()
