@@ -705,8 +705,11 @@ class PeakFinder(Configurable):
             selection = pulseEnergy[mask]
             idx = pd.MultiIndex.from_frame(selection[["trainId", "pulseId"]],
                                            names=["trainId", "pulseId"])
+            # Only keep entries that actually exist in the xarray
+            existingIdx = self.data["pulse"].to_index()
+            idx = idx[idx.isin(existingIdx)]
             self.data = self.data.sel(pulse=idx)
-            print(len(selection), "pulses after intensity filter")
+            print(len(idx), "pulses after intensity filter")
         return self
 
     def stack(self, stackTrains=None, trainStackSize=None, stackPulses=None, pulseStackStart=None, pulseStackStop=None, pulseStackSize=None, pulseStackStep=None):
