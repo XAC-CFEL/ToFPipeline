@@ -703,9 +703,13 @@ class PeakFinder(Configurable):
             if upperThreshold is not None:
                 mask &= pulseEnergy["Pulse Energy"] < upperThreshold
             selection = pulseEnergy[mask]
-            idx = pd.MultiIndex.from_frame(selection[["trainId","pulseId"]],
-                               names=["trainId","pulseId"])
-            self.data = self.data.sel(pulse=idx)
+            idx = pd.MultiIndex.from_arrays(
+                [selection["trainId"].astype(int), selection["pulseId"].astype(int)],
+                names=["trainId", "pulseId"]
+            )
+            pulseIndex = self.data["pulse"].to_index()
+            keepMask = pulseIndex.isin(idx)
+            self.data = self.data.isel(pulse=keepMask)
         return self
 
     def stack(self, stackTrains=None, trainStackSize=None, stackPulses=None, pulseStackStart=None, pulseStackStop=None, pulseStackSize=None, pulseStackStep=None):
