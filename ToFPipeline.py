@@ -928,7 +928,7 @@ class PeakFinder(Configurable):
             sliceDet = self.data.isel(detector=det)
             sliceDet = sliceDet.isel(sample=slice(roi[0],roi[1]))
             sliceNoise = sliceDet.isel(sample=slice(0,10))
-            noiseAmp = [sliceNoise.min(), sliceNoise.max()]
+            noiseAmp = [float(sliceNoise.min().compute()), float(sliceNoise.max().compute())]
             print(noiseAmp)
             peakFunc = partial(
                 findPeaksInTrace_np,
