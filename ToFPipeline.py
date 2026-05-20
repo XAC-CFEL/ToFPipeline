@@ -921,38 +921,29 @@ class PeakFinder(Configurable):
         maxSlope = maxSlope if maxSlope is not None else self.config.get("maxSlope", False)
 
         
-        peakFunc = partial(
-            findPeaksInTrace_np,
-            peakNo=peakNo,
-            cutOff=threshold,
-            widthFactor=distanceFactor,
-            widthFraction=widthFraction,
-            symmetric=symmetric,
-            minWidth=minWidth,
-            slopeLength=slopeLength,
-            maxSlope=maxSlope,
-            slopeStartHeight=slopeStartHeight
-        )
+
     
         results_list = []
         for det in tqdm(range(self.data.sizes["detector"]), desc="Finding peaks in ToFs",position=2,leave=False,disable=True):
             sliceDet = self.data.isel(detector=det)
             sliceDet = sliceDet.isel(sample=slice(roi[0],roi[1]))
-            
+            sliceNoise = sliceDet.isel(sample=slice(0,10))
+            noiseAmp = [sliceNoise.min().item(), sliceNoise.max().item()]
+            peakFunc = partial(
+                findPeaksInTrace_np,
+                peakNo=peakNo,
+                cutOff=threshold,
+                noiseAmp=noiseAmp,
+                widthFactor=distanceFactor,
+                widthFraction=widthFraction,
+                symmetric=symmetric,
+                minWidth=minWidth,
+                slopeLength=slopeLength,
+                maxSlope=maxSlope,
+                slopeStartHeight=slopeStartHeight
+            )
             sample_coords = sliceDet["sample"].values # the actual sample indices
             
-            # Create peak function that converts array indices to actual sample coordinates
-            def peakFuncWithCoords(trace, coords=sample_coords):
-                peaks = findPeaksInTrace_np(trace, peakNo=peakNo, cutOff=threshold,
-                                            widthFactor=distanceFactor,widthFraction=widthFraction, symmetric=symmetric,
-                                            minWidth=minWidth)
-                # replace array indices with real sample coordinates
-                if peaks is not None and len(peaks) > 0:
-                    indices = peaks[:, 0].astype(int)
-                    # Clamp indices to valid range
-                    indices = np.clip(indices, 0, len(coords) - 1)
-                    peaks[:, 0] = coords[indices]
-                return peaks
         
             results_det = xr.apply_ufunc(
                 peakFunc,
@@ -2711,13 +2702,13 @@ def findPeak_np(trace, widthFactor=2, symmetric=False, maxWidth=20, minWidth=Fal
 
     return trace, peak, height, widthL, widthR, area, baseL, baseR
 
-def findPeaksInTrace_np(trace, peakNo, cutOff=2, noiseRegion=[0,10], widthFactor=2,widthFraction=0.5, symmetric=True, maxWidth=30, minWidth=False,slopeLength=5, maxSlope=4, slopeStartHeight=None):
+def findPeaksInTrace_np(trace, peakNo, cutOff=2, noiseAmp=[0,1], widthFactor=2,widthFraction=0.5, symmetric=True, maxWidth=30, minWidth=False,slopeLength=5, maxSlope=4, slopeStartHeight=None):
     results = []
 
     originalTrace = trace.copy()  # Keep intact copy for baseline detection
     traceCopy = trace.copy()      # Working copy that gets zeroed for peak finding
-    minNoise= traceCopy[noiseRegion[0]:noiseRegion[1]].min()
-    maxNoise= traceCopy[noiseRegion[0]:noiseRegion[1]].max()
+    minNoise= noiseAmp[0]
+    maxNoise= noiseAmp[1]
     cutOff = (maxNoise - minNoise) * cutOff
     for _ in range(peakNo+1):
         if traceCopy.max() <= cutOff:
