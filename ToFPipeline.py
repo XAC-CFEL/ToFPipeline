@@ -712,6 +712,23 @@ class PeakFinder(Configurable):
             print(len(idx), "pulses after intensity filter")
         return self
 
+    def filterByHeight(self, lowerThreshold=None, upperThreshold=None):
+        lowerThreshold = lowerThreshold if lowerThreshold is not None else self.config.get("lowerThreshold", None)
+        upperThreshold = upperThreshold if upperThreshold is not None else self.config.get("upperThreshold", None)
+        if lowerThreshold is not None or upperThreshold is not None:
+            # Compute per-pulse maximum across all detectors and samples
+            traceMax = self.data.max(dim=["detector", "sample"]).compute()
+            pulseIndex = self.data["pulse"].to_index()
+            mask = np.ones(len(pulseIndex), dtype=bool)
+            if lowerThreshold is not None:
+                mask &= traceMax.values > lowerThreshold
+            if upperThreshold is not None:
+                mask &= traceMax.values < upperThreshold
+            idx = pulseIndex[mask]
+            self.data = self.data.sel(pulse=idx)
+            print(len(idx), "pulses after height filter")
+        return self
+
     def stack(self, stackTrains=None, trainStackSize=None, stackPulses=None, pulseStackStart=None, pulseStackStop=None, pulseStackSize=None, pulseStackStep=None):
         pulseIndex = self.data["pulse"].to_index()
         trainIds = pulseIndex.get_level_values("trainId").to_numpy()
