@@ -2599,14 +2599,14 @@ def findPeakBaseline(trace, peak, slopeLength=5, maxSlope=4, startOffsetL=0, sta
     
     return trace, int(baselinePointL-peak), int(baselinePointR-peak)
 
-def findPeaksInTrace(trace, peakNo , cutOff = 2, widthFactor=2, widthFraction=0.5, symmetric = True, noiseRegion = [0:10]):
+def findPeaksInTrace(trace, peakNo , cutOff = 2, widthFactor=2, widthFraction=0.5, symmetric = True, noiseRegion = [0,10]):
     results = []
     traceCopy = trace.copy()
     if traceCopy.max() > cutOff:
         noiseMin= traceCopy[noiseRegion[0]:noiseRegion[1]].min()
         noiseMax= traceCopy[noiseRegion[0]:noiseRegion[1]].max()
         for i in range(peakNo+1):
-            if traceCopy.max() > (noiseMax-noiseMin)*cutOff:
+            if traceCopy.max() > ((noiseMax-noiseMin)*cutOff):
                 traceCopy, pos, height, widthL, widthR, baselinePointL, baselinePointR = findPeak(traceCopy, widthFactor=widthFactor,widthFraction=widthFraction, symmetric = symmetric)
                 a = trace[pos+widthL:pos+widthR].sum()
                 results.append([pos,height,widthL,widthR,a, baselinePointL, baselinePointR])
