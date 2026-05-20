@@ -2711,11 +2711,14 @@ def findPeak_np(trace, widthFactor=2, symmetric=False, maxWidth=20, minWidth=Fal
 
     return trace, peak, height, widthL, widthR, area, baseL, baseR
 
-def findPeaksInTrace_np(trace, peakNo, cutOff=-100, widthFactor=2,widthFraction=0.5, symmetric=True, maxWidth=30, minWidth=False,slopeLength=5, maxSlope=4, slopeStartHeight=None):
+def findPeaksInTrace_np(trace, peakNo, cutOff=2, noiseRegion=[0,10], widthFactor=2,widthFraction=0.5, symmetric=True, maxWidth=30, minWidth=False,slopeLength=5, maxSlope=4, slopeStartHeight=None):
     results = []
 
     originalTrace = trace.copy()  # Keep intact copy for baseline detection
     traceCopy = trace.copy()      # Working copy that gets zeroed for peak finding
+    minNoise= traceCopy[noiseRegion[0]:noiseRegion[1]].min()
+    maxNoise= traceCopy[noiseRegion[0]:noiseRegion[1]].max()
+    cutOff = (maxNoise - minNoise) * cutOff
     for _ in range(peakNo+1):
         if traceCopy.max() <= cutOff:
             break
