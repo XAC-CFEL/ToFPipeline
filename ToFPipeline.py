@@ -926,9 +926,9 @@ class PeakFinder(Configurable):
         results_list = []
         for det in tqdm(range(self.data.sizes["detector"]), desc="Finding peaks in ToFs",position=2,leave=False,disable=True):
             sliceDet = self.data.isel(detector=det)
-            sliceDet = sliceDet.isel(sample=slice(roi[0],roi[1]))
             sliceNoise = sliceDet.isel(pulse=0, sample=slice(0,10))
             noiseAmp = [float(sliceNoise.min().compute()), float(sliceNoise.max().compute())]
+            sliceDet = sliceDet.isel(sample=slice(roi[0],roi[1]))
             print(noiseAmp)
             peakFunc = partial(
                 findPeaksInTrace_np,
