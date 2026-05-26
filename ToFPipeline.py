@@ -1386,45 +1386,46 @@ class PeakFinder(Configurable):
         Convert the list-of-arrays results from peak finding into a pandas DataFrame
         with columns ["detector","trainId","pulseId","peakNo","pos","height","width left","width right","fwhm area"].
         """
-        all_results = []
-        all_metadata = []
-    
-        # iterate over detectors
-        for det_idx, det in enumerate(self.results["detector"].values):
-            # get pulse MultiIndex
-            pulse_index = self.results["pulse"].to_index()
-            data_det = self.results.isel(detector=det_idx).values
-    
-            # iterate over pulses (still required because peaks per pulse vary)
-            for (trainId, pulseId), peaks in zip(pulse_index, data_det):
-                if peaks is None or len(peaks) == 0:
-                    continue
-                peaks = np.array(peaks)  # shape: (num_peaks, 5)
-                peakNos = np.arange(len(peaks)).reshape(-1,1)
-                all_results.append(np.hstack([peakNos, peaks]))
-                # replicate metadata for each peak
-                all_metadata.append(np.tile([det, trainId, pulseId], (len(peaks), 1)))
-    
-        if len(all_results) == 0:
-            self.results = pd.DataFrame(
+        if not isinstance(self.results, pd.DataFrame):
+            all_results = []
+            all_metadata = []
+        
+            # iterate over detectors
+            for det_idx, det in enumerate(self.results["detector"].values):
+                # get pulse MultiIndex
+                pulse_index = self.results["pulse"].to_index()
+                data_det = self.results.isel(detector=det_idx).values
+        
+                # iterate over pulses (still required because peaks per pulse vary)
+                for (trainId, pulseId), peaks in zip(pulse_index, data_det):
+                    if peaks is None or len(peaks) == 0:
+                        continue
+                    peaks = np.array(peaks)  # shape: (num_peaks, 5)
+                    peakNos = np.arange(len(peaks)).reshape(-1,1)
+                    all_results.append(np.hstack([peakNos, peaks]))
+                    # replicate metadata for each peak
+                    all_metadata.append(np.tile([det, trainId, pulseId], (len(peaks), 1)))
+        
+            if len(all_results) == 0:
+                self.results = pd.DataFrame(
+                    columns=["detector","trainId","pulseId","peakNo","pos","height","width left","width right","fwhm area","baseline left","baseline right"]
+                )
+                return self
+        
+            # stack results vertically
+            all_results = np.vstack(all_results)
+            all_metadata = np.vstack(all_metadata)
+        
+            # create DataFrame
+            df = pd.DataFrame(
+                np.hstack([all_metadata, all_results]),
                 columns=["detector","trainId","pulseId","peakNo","pos","height","width left","width right","fwhm area","baseline left","baseline right"]
             )
-            return self
-    
-        # stack results vertically
-        all_results = np.vstack(all_results)
-        all_metadata = np.vstack(all_metadata)
-    
-        # create DataFrame
-        df = pd.DataFrame(
-            np.hstack([all_metadata, all_results]),
-            columns=["detector","trainId","pulseId","peakNo","pos","height","width left","width right","fwhm area","baseline left","baseline right"]
-        )
-    
-        # convert appropriate columns to int
-        df[["detector","trainId","pulseId","peakNo"]] = df[["detector","trainId","pulseId","peakNo"]].astype(int)
-    
-        self.results = df
+        
+            # convert appropriate columns to int
+            df[["detector","trainId","pulseId","peakNo"]] = df[["detector","trainId","pulseId","peakNo"]].astype(int)
+        
+            self.results = df
         return self
 
     def fitGaussians(self, useUpperHalf=True, roiWidthMultiplier=None, roiAbsolute=None, multiGauss=None, baseline=None):
