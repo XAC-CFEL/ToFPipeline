@@ -1092,8 +1092,9 @@ class PeakFinder(Configurable):
     
         self.results = xr.concat(results_list, dim="detector")
         self.results = self.results.persist()
-        #self.dataframe()
-        #self.results["pos"] = (self.results["pos"]+roi[0]).astype(int) if roi[0] is not None else self.results["pos"].astype(int)
+        if self.results is None:
+            self.dataframe()
+            self.results["pos"] = (self.results["pos"]+roi[0]).astype(int) if roi[0] is not None else self.results["pos"].astype(int)
         return self
 
 
