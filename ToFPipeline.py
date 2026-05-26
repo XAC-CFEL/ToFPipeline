@@ -959,6 +959,91 @@ class PeakFinder(Configurable):
         self.data = self.data.chunk({"sample": -1})
         return self
 
+    def fftNoiseSubtraction(self, minFreq=None, maxFreq=None, sampleSlice=None):
+        """
+        Remove periodic noise in a specific frequency band using FFT.
+
+        For each (detector, pulse) trace the method:
+          1. Optionally restricts analysis to ``sampleSlice``.
+          2. Computes the real FFT.
+          3. Zeroes all frequency components **inside** ``[minFreq, maxFreq]``
+             (band-stop), leaving DC, signal, and out-of-band components intact.
+          4. IFFTs back to obtain the cleaned trace.
+
+        Frequencies are expressed in **cycles per sample** (0–0.5 Nyquist).
+
+        Parameters
+        ----------
+        minFreq : float, optional
+            Lower edge of the noise band to remove (cycles/sample).
+            Falls back to ``fftMinFreq`` in the config. Default ``0.01``.
+        maxFreq : float, optional
+            Upper edge of the noise band to remove (cycles/sample).
+            Falls back to ``fftMaxFreq`` in the config. Default ``0.1``.
+        sampleSlice : list or tuple [start, stop], optional
+            Restrict the FFT filtering to this sample-index window.
+            Samples outside the window are passed through unchanged.
+            Falls back to ``fftSampleSlice`` in the config.
+            If ``None``, the full trace is filtered.
+
+        Returns
+        -------
+        self
+        """
+        minFreq = (
+            minFreq if minFreq is not None
+            else self.config.get("fftMinFreq", 0.01)
+        )
+        maxFreq = (
+            maxFreq if maxFreq is not None
+            else self.config.get("fftMaxFreq", 0.1)
+        )
+        sampleSlice = (
+            sampleSlice if sampleSlice is not None
+            else self.config.get("fftSampleSlice", None)
+        )
+
+        sampleCoords = self.data.coords["sample"].values
+        nTotal = self.data.sizes["sample"]
+
+        # Determine which indices to filter
+        if sampleSlice is not None:
+            sliceStart = int(sampleSlice[0])
+            sliceStop  = int(sampleSlice[1])
+        else:
+            sliceStart, sliceStop = 0, nTotal
+
+        sliceLen = sliceStop - sliceStart
+
+        def _filter(trace):
+            # trace: 1-D numpy array of length nTotal
+            region = trace[sliceStart:sliceStop]
+            spectrum = np.fft.rfft(region)
+            freqs = np.fft.rfftfreq(sliceLen)
+            noiseMask = (np.abs(freqs) >= minFreq) & (np.abs(freqs) <= maxFreq)
+            spectrum[noiseMask] = 0.0
+            cleaned = np.fft.irfft(spectrum, n=sliceLen)
+            out = trace.copy()
+            out[sliceStart:sliceStop] = cleaned
+            return out
+
+        self.data = self.data.chunk({"sample": -1})
+
+        self.data = xr.apply_ufunc(
+            _filter,
+            self.data,
+            input_core_dims=[["sample"]],
+            output_core_dims=[["sample"]],
+            vectorize=True,
+            dask="parallelized",
+            output_dtypes=[self.data.dtype],
+            dask_gufunc_kwargs={"output_sizes": {"sample": nTotal}},
+        )
+
+        self.data = self.data.assign_coords(sample=sampleCoords)
+        self.data = self.data.chunk({"sample": -1})
+        return self
+
     def process(self, threshold=None, peakNo=None,roi=None, distanceFactor=None,widthFraction=None, symmetric=None, minWidth=True, slopeLength=None, maxSlope=None, slopeStartHeight=None):
         threshold = threshold if threshold is not None else self.config.get("threshold", 0)
         peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 8)
