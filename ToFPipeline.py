@@ -956,6 +956,7 @@ class PeakFinder(Configurable):
 
         self.data = self.data - tiledDA
         self.data = self.data.assign_coords(sample=sampleCoords)
+        self.data = self.data.chunk({"sample": -1})
         return self
 
     def process(self, threshold=None, peakNo=None,roi=None, distanceFactor=None,widthFraction=None, symmetric=None, minWidth=True, slopeLength=None, maxSlope=None, slopeStartHeight=None):
