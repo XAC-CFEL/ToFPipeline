@@ -1094,6 +1094,7 @@ class PeakFinder(Configurable):
         self.results = self.results.persist()
         if isinstance(self.results, (xr.DataArray, xr.Dataset)):  
             self.dataframe()
+        if isinstance(self.results, (pd.DataFrame, pd.Series)):  
             self.results["pos"] = (self.results["pos"]+roi[0]).astype(int) if roi[0] is not None else self.results["pos"].astype(int)
         return self
 
