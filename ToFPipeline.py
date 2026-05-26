@@ -687,6 +687,7 @@ class NXSLoader(Loader):
 
         self.sampleShift()
         return self
+    
 class PeakFinder(Configurable):
     def __init__(self, data, config=None):
         super().__init__(config)
@@ -909,7 +910,54 @@ class PeakFinder(Configurable):
         self.data = self.data.assign_coords(sample=sampleCoords)
         self.data = self.data.persist()
         return self
-    
+
+    def subtractPeriodicNoise(self, noiseRegion=None):
+        """
+        Subtract a periodic noise pattern from the trace for each detector, trainId, and pulseId.
+
+        The noise pattern is taken from ``noiseRegion`` of the trace (by sample index),
+        tiled to cover the full trace length, and subtracted sample-by-sample.
+
+        Parameters
+        ----------
+        noiseRegion : list or tuple of [start, stop], optional
+            Sample index range ``[start, stop)`` defining the noise reference window.
+            Falls back to the ``noiseRegion`` key in the config.
+            Defaults to ``[0, 100]``.
+
+        Returns
+        -------
+        self
+        """
+        noiseRegion = (
+            noiseRegion
+            if noiseRegion is not None
+            else self.config.get("noiseRegion", [0, 100])
+        )
+        start, stop = int(noiseRegion[0]), int(noiseRegion[1])
+
+        sampleCoords = self.data.coords["sample"]
+        nSamples = self.data.sizes["sample"]
+        period = stop - start
+
+        # Extract the noise pattern: shape (detector, pulse, period)
+        noisePattern = self.data.isel(sample=slice(start, stop))
+
+        # Tile along the sample axis to cover nSamples
+        nTiles = int(np.ceil(nSamples / period))
+        noiseNp = noisePattern.data  # dask or numpy, shape (..., period)
+        tiledNoise = da.tile(noiseNp, (1, 1, nTiles))[..., :nSamples]
+
+        tiledDA = xr.DataArray(
+            tiledNoise,
+            dims=self.data.dims,
+            coords=self.data.coords,
+        )
+
+        self.data = self.data - tiledDA
+        self.data = self.data.assign_coords(sample=sampleCoords)
+        return self
+
     def process(self, threshold=None, peakNo=None,roi=None, distanceFactor=None,widthFraction=None, symmetric=None, minWidth=True, slopeLength=None, maxSlope=None, slopeStartHeight=None):
         threshold = threshold if threshold is not None else self.config.get("threshold", 0)
         peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 8)
