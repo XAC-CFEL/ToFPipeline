@@ -1044,7 +1044,10 @@ class PeakFinder(Configurable):
         self.data = self.data.chunk({"sample": -1})
         return self
 
-    def process(self, threshold=None, peakNo=None,roi=None, distanceFactor=None,widthFraction=None, symmetric=None, minWidth=True, slopeLength=None, maxSlope=None, slopeStartHeight=None):
+    def process(self, threshold=None, peakNo=None, roi=None, distanceFactor=None,
+                widthFraction=None, symmetric=None, minWidth=True,
+                slopeLength=None, maxSlope=None, slopeStartHeight=None,
+                noiseRegion=None):
         threshold = threshold if threshold is not None else self.config.get("threshold", 0)
         peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 8)
         roi = roi if roi is not None else self.config.get("roi", [None,None])
@@ -1053,15 +1056,16 @@ class PeakFinder(Configurable):
         symmetric = symmetric if symmetric is not None else self.config.get("symmetric", True)
         slopeLength = slopeLength if slopeLength is not None else self.config.get("slopeLength", False)
         maxSlope = maxSlope if maxSlope is not None else self.config.get("maxSlope", False)
-
+        noiseRegion = noiseRegion if noiseRegion is not None else self.config.get("noiseRegion", [0,10])
         
 
     
         results_list = []
         for det in tqdm(range(self.data.sizes["detector"]), desc="Finding peaks in ToFs",position=2,leave=False,disable=True):
             sliceDet = self.data.isel(detector=det)
-            sliceNoise = sliceDet.isel(sample=slice(0,10))
-            noiseAmp = [float(sliceNoise.min().compute()), float(sliceNoise.max().compute())]
+            if noiseRegion is not None:
+                sliceNoise = sliceDet.isel(sample=slice(noiseRegion[0], noiseRegion[1]))
+                noiseAmp = [float(sliceNoise.min().compute()), float(sliceNoise.max().compute())]
             sliceDet = sliceDet.isel(sample=slice(roi[0],roi[1]))
 
             peakFunc = partial(
@@ -1088,8 +1092,9 @@ class PeakFinder(Configurable):
                 dask="parallelized",
                 output_dtypes=[object]
             )
-            for peak in range(len(results_det)):
-                results_det[peak].append(noiseAmp[1]-noiseAmp[0])
+            if noiseRegion is not None:
+                for peak in range(len(results_det)):
+                    results_det[peak].append(noiseAmp[1]-noiseAmp[0])
             results_list.append(results_det)
 
         self.results = xr.concat(results_list, dim="detector")
