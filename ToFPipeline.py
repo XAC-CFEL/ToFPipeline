@@ -1093,8 +1093,11 @@ class PeakFinder(Configurable):
                 output_dtypes=[object]
             )
             if noiseRegion is not None:
-                for peak in range(len(results_det)):
-                    results_det[peak].append(noiseAmp[1]-noiseAmp[0])
+                noiseFloor = noiseAmp[1] - noiseAmp[0]
+                for peaks in results_det.values.flat:
+                    if peaks is not None:
+                        for peak in peaks:
+                            peak.append(noiseFloor)
             results_list.append(results_det)
 
         self.results = xr.concat(results_list, dim="detector")
