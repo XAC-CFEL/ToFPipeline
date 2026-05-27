@@ -2190,6 +2190,9 @@ class Fitter(Configurable):
             else:
                 ax.plot(theta, trace, marker="o", linewidth=0, label='Data')
 
+            for t, r, det in zip(theta, trace.values, calibArea["detector"].values):
+                ax.annotate(str(det), xy=(t, r), xytext=(4, 4), textcoords="offset points", fontsize=7)
+
             plin_str = f"Plin: {Plin_fit:.2f}" + (f" ± {sigma_P:.2f}" if sigma_P != 0.0 else "")
             phi_str  = f"φ: {phi_fit:.1f}°"  + (f" ± {sigma_phi:.1f}°" if sigma_phi != 0.0 else "")
             label = f"{plin_str},  {phi_str}"
