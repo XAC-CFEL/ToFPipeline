@@ -1094,10 +1094,12 @@ class PeakFinder(Configurable):
             )
             if noiseRegion is not None:
                 noiseFloor = noiseAmp[1] - noiseAmp[0]
-                for peaks in results_det.values.flat:
+                arr = results_det.values
+                for idx in np.ndindex(arr.shape):
+                    peaks = arr[idx]
                     if peaks is not None:
-                        for peak in peaks:
-                            peak.append(noiseFloor)
+                        arr[idx] = [list(peak) + [noiseFloor] for peak in peaks]
+                results_det = results_det.copy(data=arr)
             results_list.append(results_det)
 
         self.results = xr.concat(results_list, dim="detector")
