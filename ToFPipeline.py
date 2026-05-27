@@ -1056,7 +1056,7 @@ class PeakFinder(Configurable):
         symmetric = symmetric if symmetric is not None else self.config.get("symmetric", True)
         slopeLength = slopeLength if slopeLength is not None else self.config.get("slopeLength", False)
         maxSlope = maxSlope if maxSlope is not None else self.config.get("maxSlope", False)
-        noiseRegion = noiseRegion if noiseRegion is not None else self.config.get("noiseRegion", [0,10])
+        noiseRegion = noiseRegion if noiseRegion is not None else self.config.get("noiseRegion", None)
         
 
     
