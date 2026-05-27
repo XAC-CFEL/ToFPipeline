@@ -1094,14 +1094,14 @@ class PeakFinder(Configurable):
                 dask="parallelized",
                 output_dtypes=[object]
             )
-            if noiseRegion is not None:
-                noiseFloor = noiseAmp[1] - noiseAmp[0]
-                arr = results_det.values
-                for idx in np.ndindex(arr.shape):
-                    peaks = arr[idx]
-                    if peaks is not None:
-                        arr[idx] = [list(peak) + [noiseFloor] for peak in peaks]
-                results_det = results_det.copy(data=arr)
+            
+            noiseFloor = noiseAmp[1] - noiseAmp[0]
+            arr = results_det.values
+            for idx in np.ndindex(arr.shape):
+                peaks = arr[idx]
+                if peaks is not None:
+                    arr[idx] = [list(peak) + [noiseFloor] for peak in peaks]
+            results_det = results_det.copy(data=arr)
             results_list.append(results_det)
 
         self.results = xr.concat(results_list, dim="detector")
