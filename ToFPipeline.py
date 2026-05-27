@@ -1060,15 +1060,15 @@ class PeakFinder(Configurable):
         results_list = []
         for det in tqdm(range(self.data.sizes["detector"]), desc="Finding peaks in ToFs",position=2,leave=False,disable=True):
             sliceDet = self.data.isel(detector=det)
-            #sliceNoise = sliceDet.isel(sample=slice(0,10))
-            #noiseAmp = [float(sliceNoise.min().compute()), float(sliceNoise.max().compute())]
+            sliceNoise = sliceDet.isel(sample=slice(0,10))
+            noiseAmp = [float(sliceNoise.min().compute()), float(sliceNoise.max().compute())]
             sliceDet = sliceDet.isel(sample=slice(roi[0],roi[1]))
 
             peakFunc = partial(
                 findPeaksInTrace_np,
                 peakNo=peakNo,
                 cutOff=threshold,
-                noiseAmp=[0,1],
+                noiseAmp=noiseAmp,
                 widthFactor=distanceFactor,
                 widthFraction=widthFraction,
                 symmetric=symmetric,
@@ -1088,8 +1088,10 @@ class PeakFinder(Configurable):
                 dask="parallelized",
                 output_dtypes=[object]
             )
+            for peak in range(len(results_det)):
+                results_det[peak].append(noiseAmp[1]-noiseAmp[0])
             results_list.append(results_det)
-    
+
         self.results = xr.concat(results_list, dim="detector")
         self.results = self.results.persist()
         
@@ -1408,7 +1410,7 @@ class PeakFinder(Configurable):
         
             if len(all_results) == 0:
                 self.results = pd.DataFrame(
-                    columns=["detector","trainId","pulseId","peakNo","pos","height","width left","width right","fwhm area","baseline left","baseline right"]
+                    columns=["detector","trainId","pulseId","peakNo","pos","height","width left","width right","fwhm area","baseline left","baseline right", "noise amplitude"]
                 )
                 return self
         
@@ -1419,7 +1421,7 @@ class PeakFinder(Configurable):
             # create DataFrame
             df = pd.DataFrame(
                 np.hstack([all_metadata, all_results]),
-                columns=["detector","trainId","pulseId","peakNo","pos","height","width left","width right","fwhm area","baseline left","baseline right"]
+                columns=["detector","trainId","pulseId","peakNo","pos","height","width left","width right","fwhm area","baseline left","baseline right","noise amplitude"]
             )
         
             # convert appropriate columns to int
