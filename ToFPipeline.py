@@ -1961,13 +1961,16 @@ class Fitter(Configurable):
         self.params = params
 
 
-    def pol(self, transParam=None, peakNo=None, beta=0, setPlin=None, setPhi=None, fitBeta=False, intMethod="height", groupParam=True, plot=True, orientation="N", direction=1):
+    def pol(self, transParam=None, peakNo=None, beta=0, setPlin=None, setPhi=None, fitBeta=False, intMethod="height", groupParam=True, plot=True, orientation="N", direction=1, plotError=False):
         peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 0)
         transParam = transParam if transParam is not None else self.params
 
         fullTheta = np.linspace(0, 2*np.pi, 16, endpoint=False)
 
-        area = self.results[ self.results["peakNo"] == peakNo][["pos","fwhm area","height","detector","Angles","Photon Energy"]].copy()
+        cols = ["pos","fwhm area","height","detector","Angles","Photon Energy"]
+        if "noise amplitude" in self.results.columns:
+            cols.append("noise amplitude")
+        area = self.results[ self.results["peakNo"] == peakNo][cols].copy()
         if groupParam:
             scores = []
             for pe, calib_group in transParam.groupby("Photon Energy"):
@@ -2014,6 +2017,8 @@ class Fitter(Configurable):
         calibArea = calibArea.sort_values("detector").reset_index(drop=True)
         calibArea["calibValue"] = (calibArea[intMethod] * calibArea["Transmission Coefficient"])
         calibArea.dropna(subset=["calibValue"], inplace=True)
+        if "noise amplitude" in calibArea.columns:
+            calibArea["noiseError"] = calibArea["noise amplitude"] * calibArea["Transmission Coefficient"] * 2
 
         theta = calibArea["Angles"].values * np.pi / 180
         trace = calibArea["calibValue"]
@@ -2170,7 +2175,11 @@ class Fitter(Configurable):
 
         if plot:
             fig, ax = plt.subplots(figsize=(6,4), subplot_kw={'projection': 'polar'})
-            ax.plot(theta, trace, marker="o", linewidth=0, label='Data')
+            if plotError and "noiseError" in calibArea.columns:
+                yerr = calibArea["noiseError"].values
+                ax.errorbar(theta, trace, yerr=yerr, marker="o", linewidth=0, capsize=3, label='Data')
+            else:
+                ax.plot(theta, trace, marker="o", linewidth=0, label='Data')
             if Plin_fit > 0.015:
                 ax.plot([phi_rad_fit, phi_rad_fit], [0, maxTrace], color="orange")
                 ax.plot([phi_rad_fit + np.pi, phi_rad_fit + np.pi], [0, maxTrace], color="orange")
