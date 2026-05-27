@@ -1961,7 +1961,7 @@ class Fitter(Configurable):
         self.params = params
 
 
-    def pol(self, transParam=None, peakNo=None, beta=0, setPlin=None, setPhi=None, fitBeta=False, intMethod="height", groupParam=True, plot=True, orientation="N", direction=1, plotError=False):
+    def pol(self, transParam=None, peakNo=None, beta=0, setPlin=None, setPhi=None, fitBeta=False, intMethod="height", groupParam=True, plot=True, orientation="N", direction=1, plotError=False, weightByNoise=False):
         peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 0)
         transParam = transParam if transParam is not None else self.params
 
@@ -2026,6 +2026,11 @@ class Fitter(Configurable):
         maxTrace = max(trace)
 
         fit_kws = dict(method='trf', ftol=1e-9, xtol=1e-9, gtol=1e-9, maxfev=100000)
+        if weightByNoise and "noiseError" in calibArea.columns:
+            sigma_arr = (calibArea["noiseError"].values / 2)  # noiseError = 2*sigma; use 1-sigma
+            if np.all(sigma_arr > 0):
+                fit_kws["sigma"] = sigma_arr
+                fit_kws["absolute_sigma"] = True
 
         beta0 = beta if beta != 0 else 1.0
 
