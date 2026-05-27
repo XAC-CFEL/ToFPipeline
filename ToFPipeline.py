@@ -2195,9 +2195,9 @@ class Fitter(Configurable):
 
             plin_str = f"Plin: {Plin_fit:.2f}" + (f" ± {sigma_P:.2f}" if sigma_P != 0.0 else "")
             phi_str  = f"φ: {phi_fit:.1f}°"  + (f" ± {sigma_phi:.1f}°" if sigma_phi != 0.0 else "")
-            label = f"{plin_str},  {phi_str}"
+            label = f"{plin_str}\n{phi_str}"
             if fitBeta:
-                label += f",  β: {beta2_fit:.4f}" + (f" ± {sigma_beta2:.4f}" if sigma_beta2 != 0.0 else "")
+                label += f"\nβ: {beta2_fit:.4f}" + (f" ± {sigma_beta2:.4f}" if sigma_beta2 != 0.0 else "")
             ax.plot(theta_fit, intensity_fit, label=label, color="green")
             ax.set_yticks([])
             ax.set_theta_zero_location(orientation)  # 0° at top
