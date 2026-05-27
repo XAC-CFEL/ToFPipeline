@@ -2185,9 +2185,9 @@ class Fitter(Configurable):
             else:
                 ax.plot(theta, trace, marker="o", linewidth=0, label='Data')
 
-            label = f"Fitted Plin: {Plin_fit:.5f}"
+            label = f"Plin: {Plin_fit:.5f} ± {sigma_P:.5f},  φ: {phi_fit:.3f}° ± {sigma_phi:.3f}°"
             if fitBeta:
-                label += f", beta: {beta2_fit:.4f}"
+                label += f",  β: {beta2_fit:.4f} ± {sigma_beta2:.4f}"
             ax.plot(theta_fit, intensity_fit, label=label, color="green")
             ax.set_yticks([])
             ax.set_theta_zero_location(orientation)  # 0° at top
