@@ -1066,6 +1066,8 @@ class PeakFinder(Configurable):
             if noiseRegion is not None:
                 sliceNoise = sliceDet.isel(sample=slice(noiseRegion[0], noiseRegion[1]))
                 noiseAmp = [float(sliceNoise.min().compute()), float(sliceNoise.max().compute())]
+            else:
+                noiseAmp = [0,1]
             sliceDet = sliceDet.isel(sample=slice(roi[0],roi[1]))
 
             peakFunc = partial(
