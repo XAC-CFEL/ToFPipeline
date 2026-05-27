@@ -2175,14 +2175,16 @@ class Fitter(Configurable):
 
         if plot:
             fig, ax = plt.subplots(figsize=(6,4), subplot_kw={'projection': 'polar'})
+            if Plin_fit > 0.015:
+                ax.plot([phi_rad_fit, phi_rad_fit], [0, maxTrace], color="orange")
+                ax.plot([phi_rad_fit + np.pi, phi_rad_fit + np.pi], [0, maxTrace], color="orange")
+            
             if plotError and "noiseError" in calibArea.columns:
                 yerr = calibArea["noiseError"].values
                 ax.errorbar(theta, trace, yerr=yerr, marker="o", linewidth=0, capsize=3, elinewidth=1, label='Data')
             else:
                 ax.plot(theta, trace, marker="o", linewidth=0, label='Data')
-            if Plin_fit > 0.015:
-                ax.plot([phi_rad_fit, phi_rad_fit], [0, maxTrace], color="orange")
-                ax.plot([phi_rad_fit + np.pi, phi_rad_fit + np.pi], [0, maxTrace], color="orange")
+
             label = f"Fitted Plin: {Plin_fit:.5f}"
             if fitBeta:
                 label += f", beta: {beta2_fit:.4f}"
