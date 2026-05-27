@@ -2190,9 +2190,9 @@ class Fitter(Configurable):
             else:
                 ax.plot(theta, trace, marker="o", linewidth=0, label='Data')
 
-            _rLabel = maxTrace * 1.1
+            _rOff = maxTrace * 0.1
             for t, r, det in zip(theta, trace.values, calibArea["detector"].values):
-                ax.annotate(str(det), xy=(t, r), xytext=(t + np.deg2rad(7), _rLabel),
+                ax.annotate(str(det), xy=(t, r), xytext=(t + np.deg2rad(7), r + _rOff),
                             xycoords='data', textcoords='data', fontsize=7,
                             ha='center', va='center')
 
