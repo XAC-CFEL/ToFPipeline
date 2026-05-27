@@ -2177,7 +2177,7 @@ class Fitter(Configurable):
             fig, ax = plt.subplots(figsize=(6,4), subplot_kw={'projection': 'polar'})
             if plotError and "noiseError" in calibArea.columns:
                 yerr = calibArea["noiseError"].values
-                ax.errorbar(theta, trace, yerr=yerr, marker="o", linewidth=0, capsize=3, label='Data')
+                ax.errorbar(theta, trace, yerr=yerr, marker="o", linewidth=0, capsize=3, elinewidth=1, label='Data')
             else:
                 ax.plot(theta, trace, marker="o", linewidth=0, label='Data')
             if Plin_fit > 0.015:
