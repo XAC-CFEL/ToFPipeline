@@ -1962,7 +1962,7 @@ class Fitter(Configurable):
 
 
     def pol(self, transParam=None, peakNo=None, beta=0, setPlin=None, setPhi=None, fitBeta=False, intMethod="height", groupParam=True, plot=True,
-             orientation="N", direction=1, plotError=False, weightByNoise=False, rOff=0.1, angOff=0, shiftAngOff=0):
+             orientation="N", direction=1, plotError=False, weightByNoise=False, rOff=0.1, angOff=0, shiftAngOff=0, legendPos=None):
         peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 0)
         transParam = transParam if transParam is not None else self.params
 
@@ -2209,12 +2209,15 @@ class Fitter(Configurable):
             ax.set_yticks([])
             ax.set_theta_zero_location(orientation)  # 0° at top
             ax.set_theta_direction(direction)       # clockwise
-            _theta_deg = np.rad2deg(theta) % 360
-            _legend_candidates = {"upper left": 45, "lower left": 135, "lower right": 225, "upper right": 315}
-            def _min_ang_dist(center, angles):
-                return np.min(np.abs(((angles - center + 180) % 360) - 180))
-            _legend_loc = max(_legend_candidates, key=lambda loc: _min_ang_dist(_legend_candidates[loc], _theta_deg))
-            ax.legend(loc=_legend_loc)
+            if legendPos is not None:
+                ax.legend(loc="upper left", bbox_to_anchor=legendPos, bbox_transform=ax.transAxes)
+            else:
+                _theta_deg = np.rad2deg(theta) % 360
+                _legend_candidates = {"upper left": 45, "lower left": 135, "lower right": 225, "upper right": 315}
+                def _min_ang_dist(center, angles):
+                    return np.min(np.abs(((angles - center + 180) % 360) - 180))
+                _legend_loc = max(_legend_candidates, key=lambda loc: _min_ang_dist(_legend_candidates[loc], _theta_deg))
+                ax.legend(loc=_legend_loc)
             plt.savefig("pol.png", dpi=600)
             plt.show()
             
