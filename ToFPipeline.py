@@ -2019,7 +2019,7 @@ class Fitter(Configurable):
         calibArea["calibValue"] = (calibArea[intMethod] * calibArea["Transmission Coefficient"])
         calibArea.dropna(subset=["calibValue"], inplace=True)
         if "noise amplitude" in calibArea.columns:
-            calibArea["noiseError"] = calibArea["noise amplitude"] * calibArea["Transmission Coefficient"] * 2
+            calibArea["noiseError"] = calibArea["noise amplitude"] * calibArea["Transmission Coefficient"]
 
         theta = calibArea["Angles"].values * np.pi / 180
         trace = calibArea["calibValue"]
