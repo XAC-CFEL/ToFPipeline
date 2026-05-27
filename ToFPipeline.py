@@ -1961,7 +1961,7 @@ class Fitter(Configurable):
         self.params = params
 
 
-    def pol(self, transParam=None, peakNo=None, beta=0, setPlin=None, setPhi=None, fitBeta=False, intMethod="height", groupParam=True, plot=True, orientation="N", direction=1, plotError=False, weightByNoise=False, rOff=0.1):
+    def pol(self, transParam=None, peakNo=None, beta=0, setPlin=None, setPhi=None, fitBeta=False, intMethod="height", groupParam=True, plot=True, orientation="N", direction=1, plotError=False, weightByNoise=False, rOff=0.1, angOff=0):
         peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 0)
         transParam = transParam if transParam is not None else self.params
 
@@ -2192,7 +2192,7 @@ class Fitter(Configurable):
 
             _rOff = maxTrace * rOff
             for t, r, det in zip(theta, trace.values, calibArea["detector"].values):
-                ax.annotate(str(det), xy=(t, r), xytext=(t + np.deg2rad(7), r + _rOff),
+                ax.annotate(str(det), xy=(t, r), xytext=(t + np.deg2rad(angOff), r + _rOff),
                             xycoords='data', textcoords='data', fontsize=7,
                             ha='center', va='center')
 
