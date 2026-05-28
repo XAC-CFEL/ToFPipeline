@@ -2209,7 +2209,7 @@ class Fitter(Configurable):
             plin_row = rf"$P_{{\mathrm{{lin}}}}$ & {Plin_fit:.2f} & {pm_plin} & {plin_err_col} \\"
             phi_row  = rf"$\phi$ & {phi_fit:.1f}{{$^\circ$}} & {pm_phi} & {phi_err_col} \\"
             label = (
-                r"\begin{tabular}{l S[table-format=5.4] c S[table-format=5.4]} "
+                r"\begin{tabular}{l S[table-format=2.2] c S[table-format=2.2]} "
                 + plin_row + " " + phi_row
             )
             if fitBeta:
