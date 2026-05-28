@@ -2202,8 +2202,8 @@ class Fitter(Configurable):
                             xycoords='data', textcoords='data', fontsize=7,
                             ha='center', va='center')
 
-            plin_val = rf"\num{{{Plin_fit:.2f}({sigma_P:.2f})}}" if sigma_P != 0.0 else rf"\num{{{Plin_fit:.2f}}}"
-            phi_val  = rf"\num{{{phi_fit:.1f}({sigma_phi:.1f})}}" if sigma_phi != 0.0 else rf"\num{{{phi_fit:.1f}}}"
+            plin_val = rf"{Plin_fit:.2f}({sigma_P:.2f})" if sigma_P != 0.0 else rf"{Plin_fit:.2f}"
+            phi_val  = rf"{phi_fit:.1f}({sigma_phi:.1f})" if sigma_phi != 0.0 else rf"{phi_fit:.1f}"
             plin_row = rf"$P_{{\mathrm{{lin}}}}$ & {plin_val} \\"
             phi_row  = rf"$\phi$ [$^\circ$] & {phi_val} \\"
             label = (
