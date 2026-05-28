@@ -1249,7 +1249,9 @@ class PeakFinder(Configurable):
             plt.savefig(f"{savename}.png",dpi=600)
         return self
     
-    def plotSingle(self, trainIndex=None, pulseIndex=None, ToF=0, xmin=None, xmax=None, ymin=None, ymax=None, figsize=(8, 6), savename=False,widthFraction=0.5, logScale=False, showGaussianFit=False):
+    def plotSingle(self, trainIndex=None, pulseIndex=None, ToF=0,
+                   xmin=None, xmax=None, ymin=None, ymax=None,
+                   figsize=(8, 6), savename=False,widthFraction=0.5, logScale=False, showGaussianFit=False):
 
         train_ids = self.data.indexes["pulse"].get_level_values("trainId")
         pulse_ids = self.data.indexes["pulse"].get_level_values("pulseId")
@@ -2201,10 +2203,10 @@ class Fitter(Configurable):
                             ha='center', va='center')
 
             plin_str = f"Plin: {Plin_fit:.2f}" + (f" ± {sigma_P:.2f}" if sigma_P != 0.0 else "")
-            phi_str  = f"φ: {phi_fit:.1f}°"  + (f" ± {sigma_phi:.1f}°" if sigma_phi != 0.0 else "")
+            phi_str  = f"\\phi: {phi_fit:.1f}°"  + (f" ± {sigma_phi:.1f}°" if sigma_phi != 0.0 else "")
             label = f"{plin_str}\n{phi_str}"
             if fitBeta:
-                label += f"\nβ: {beta2_fit:.4f}" + (f" ± {sigma_beta2:.4f}" if sigma_beta2 != 0.0 else "")
+                label += f"\n\\beta: {beta2_fit:.4f}" + (f" ± {sigma_beta2:.4f}" if sigma_beta2 != 0.0 else "")
             ax.plot(theta_fit, intensity_fit, label=label, color="green")
             ax.set_yticks([])
             ax.set_theta_zero_location(orientation)  # 0° at top
