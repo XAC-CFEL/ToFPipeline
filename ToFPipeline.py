@@ -2205,7 +2205,7 @@ class Fitter(Configurable):
             plin_val = rf"{Plin_fit:.2f}({sigma_P:.2f})" if sigma_P != 0.0 else rf"{Plin_fit:.2f}"
             phi_val  = rf"{phi_fit:.1f}({sigma_phi:.1f})" if sigma_phi != 0.0 else rf"{phi_fit:.1f}"
             plin_row = rf"$P_{{\mathrm{{lin}}}}$ & {plin_val} \\"
-            phi_row  = rf"$\phi$ [\degree] & {phi_val} \\"
+            phi_row  = rf"$\phi$ [$^\circ$] & {phi_val} \\"
             label = (
                 r"\begin{tabular}{l S[table-format=2.2(1.2)]} "
                 + plin_row + " " + phi_row
