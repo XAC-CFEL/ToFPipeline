@@ -2207,7 +2207,7 @@ class Fitter(Configurable):
             plin_row = rf"$P_{{\mathrm{{lin}}}}$ & {plin_val} \\"
             phi_row  = rf"$\phi$ [\degree] & {phi_val} \\"
             label = (
-                r"\begin{tabular}{l S[table-format=5.4]} "
+                r"\begin{tabular}{l S[table-format=2.2(1.2)]} "
                 + plin_row + " " + phi_row
             )
             if fitBeta:
