@@ -2202,20 +2202,17 @@ class Fitter(Configurable):
                             xycoords='data', textcoords='data', fontsize=7,
                             ha='center', va='center')
 
-            plin_err_col = rf"{sigma_P:.2f}" if sigma_P != 0.0 else ""
-            phi_err_col  = rf"{sigma_phi:.1f}{{$^\circ$}}" if sigma_phi != 0.0 else ""
-            pm_plin      = r"$\pm$" if sigma_P != 0.0 else ""
-            pm_phi       = r"$\pm$" if sigma_phi != 0.0 else ""
-            plin_row = rf"$P_{{\mathrm{{lin}}}}$ & {Plin_fit:.2f} & {pm_plin} & {plin_err_col} \\"
-            phi_row  = rf"$\phi$ & {phi_fit:.1f}{{$^\circ$}} & {pm_phi} & {phi_err_col} \\"
+            plin_val = rf"{Plin_fit:.2f}({sigma_P:.2f})" if sigma_P != 0.0 else rf"{Plin_fit:.2f}"
+            phi_val  = rf"{phi_fit:.1f}({sigma_phi:.1f})" if sigma_phi != 0.0 else rf"{phi_fit:.1f}"
+            plin_row = rf"$P_{{\mathrm{{lin}}}}$ & {plin_val} \\"
+            phi_row  = rf"$\phi$ [\degree] & {phi_val} \\"
             label = (
-                r"\begin{tabular}{l S[table-format=2.2] c S[table-format=2.2]} "
+                r"\begin{tabular}{l S[table-format=5.4]} "
                 + plin_row + " " + phi_row
             )
             if fitBeta:
-                pm_beta      = r"$\pm$" if sigma_beta2 != 0.0 else ""
-                beta_err_col = rf"{sigma_beta2:.4f}" if sigma_beta2 != 0.0 else ""
-                beta_row = rf"$\beta_2$ & {beta2_fit:.4f} & {pm_beta} & {beta_err_col} \\"
+                beta_val = rf"{beta2_fit:.4f}({sigma_beta2:.4f})" if sigma_beta2 != 0.0 else rf"{beta2_fit:.4f}"
+                beta_row = rf"$\beta_2$ & {beta_val} \\"
                 label += " " + beta_row
             label += r" \end{tabular}"
             ax.plot(theta_fit, intensity_fit, label=label, color="green")
