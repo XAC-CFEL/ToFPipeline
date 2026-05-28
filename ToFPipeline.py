@@ -2212,10 +2212,10 @@ class Fitter(Configurable):
             _max_val_dec = max(d for _, __, d in _val_rows)
             _max_err_int = max((_nint(e) for _, e, __ in _val_rows if e != 0.0), default=1)
             _max_err_dec = _max_val_dec
-            _tfmt = rf"{_max_val_int}.{_max_val_dec}({_max_err_int}.{_max_err_dec})"
+            _tfmt = rf"{_max_val_int}.{_max_val_dec}+-{_max_err_int}.{_max_err_dec}"
 
-            plin_val = rf"{Plin_fit:.2f}({sigma_P:.2f})" if sigma_P != 0.0 else rf"{Plin_fit:.2f}"
-            phi_val  = rf"{phi_fit:.1f}({sigma_phi:.1f})" if sigma_phi != 0.0 else rf"{phi_fit:.1f}"
+            plin_val = rf"{Plin_fit:.2f} +- {sigma_P:.2f}" if sigma_P != 0.0 else rf"{Plin_fit:.2f}"
+            phi_val  = rf"{phi_fit:.1f} +- {sigma_phi:.1f}" if sigma_phi != 0.0 else rf"{phi_fit:.1f}"
             plin_row = rf"$P_{{\mathrm{{lin}}}}$ & {plin_val} \\"
             phi_row  = rf"$\phi$ [$^\circ$] & {phi_val} \\"
             label = (
@@ -2223,7 +2223,7 @@ class Fitter(Configurable):
                 + plin_row + " " + phi_row
             )
             if fitBeta:
-                beta_val = rf"{beta2_fit:.4f}({sigma_beta2:.4f})" if sigma_beta2 != 0.0 else rf"{beta2_fit:.4f}"
+                beta_val = rf"{beta2_fit:.4f} +- {sigma_beta2:.4f}" if sigma_beta2 != 0.0 else rf"{beta2_fit:.4f}"
                 beta_row = rf"$\beta_2$ & {beta_val} \\"
                 label += " " + beta_row
             label += r" \end{tabular}"
