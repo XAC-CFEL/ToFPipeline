@@ -1247,18 +1247,23 @@ class PeakFinder(Configurable):
                 _row = energyCalib[energyCalib["detector"] == ToF]
                 if not _row.empty:
                     _p0, _p1, _p2, _p3, _p4 = _row.iloc[0][["p0", "p1", "p2", "p3", "p4"]].values
+                    _pos_min = _row.iloc[0].get("pos_min", np.nan)
+                    _pos_max = _row.iloc[0].get("pos_max", np.nan)
                     _x_min, _x_max = ax[j].get_xlim()
                     _domain_min = -min(_p2, _p4) + 1e-6  # below this: sqrt of negative
                     _all_ticks = np.linspace(_x_min, _x_max, eTickNum)
                     _labels = []
                     _colors = []
                     for _t in _all_ticks:
-                        if _t + _p2 > 0 and _t + _p4 > 0:
+                        if _t + _p2 <= 0 or _t + _p4 <= 0:
+                            _labels.append("\u2014")
+                            _colors.append("red")
+                        elif (not np.isnan(_pos_min) and _t < _pos_min) or (not np.isnan(_pos_max) and _t > _pos_max):
+                            _labels.append(f"{energyCalibFunc(_t, _p0, _p1, _p2, _p3, _p4):.1f}")
+                            _colors.append("#CC6600")  # orange: extrapolated but valid
+                        else:
                             _labels.append(f"{energyCalibFunc(_t, _p0, _p1, _p2, _p3, _p4):.1f}")
                             _colors.append("black")
-                        else:
-                            _labels.append("—")
-                            _colors.append("red")
                     ax2 = ax[j].twiny()
                     ax2.set_xlim(ax[j].get_xlim())
                     ax2.set_xticks(_all_ticks)
@@ -1266,8 +1271,14 @@ class PeakFinder(Configurable):
                     for _lbl, _col in zip(_tick_objs, _colors):
                         _lbl.set_color(_col)
                     ax2.set_xlabel("Energy (eV)", fontsize=7)
+                    # Shade invalid region (math domain) in red
                     if _domain_min > _x_min:
                         ax[j].axvspan(_x_min, min(_domain_min, _x_max), alpha=0.08, color="red", zorder=0)
+                    # Shade extrapolated-but-valid regions in orange
+                    if not np.isnan(_pos_min) and _pos_min > max(_x_min, _domain_min):
+                        ax[j].axvspan(max(_x_min, _domain_min), min(_pos_min, _x_max), alpha=0.08, color="orange", zorder=0)
+                    if not np.isnan(_pos_max) and _pos_max < _x_max:
+                        ax[j].axvspan(max(_pos_max, _x_min), _x_max, alpha=0.08, color="orange", zorder=0)
             j+=1
         fig.supxlabel("Sample")
         fig.supylabel("Intensity")
@@ -1421,18 +1432,23 @@ class PeakFinder(Configurable):
             _row = energyCalib[energyCalib["detector"] == ToF]
             if not _row.empty:
                 _p0, _p1, _p2, _p3, _p4 = _row.iloc[0][["p0", "p1", "p2", "p3", "p4"]].values
+                _pos_min = _row.iloc[0].get("pos_min", np.nan)
+                _pos_max = _row.iloc[0].get("pos_max", np.nan)
                 _x_min, _x_max = ax.get_xlim()
                 _domain_min = -min(_p2, _p4) + 1e-6  # below this: sqrt of negative
                 _all_ticks = np.linspace(_x_min, _x_max, eTickNum)
                 _labels = []
                 _colors = []
                 for _t in _all_ticks:
-                    if _t + _p2 > 0 and _t + _p4 > 0:
+                    if _t + _p2 <= 0 or _t + _p4 <= 0:
+                        _labels.append("\u2014")
+                        _colors.append("red")
+                    elif (not np.isnan(_pos_min) and _t < _pos_min) or (not np.isnan(_pos_max) and _t > _pos_max):
+                        _labels.append(f"{energyCalibFunc(_t, _p0, _p1, _p2, _p3, _p4):.1f}")
+                        _colors.append("#CC6600")  # orange: extrapolated but valid
+                    else:
                         _labels.append(f"{energyCalibFunc(_t, _p0, _p1, _p2, _p3, _p4):.1f}")
                         _colors.append("black")
-                    else:
-                        _labels.append("—")
-                        _colors.append("red")
                 ax2 = ax.twiny()
                 ax2.set_xlim(ax.get_xlim())
                 ax2.set_xticks(_all_ticks)
@@ -1440,8 +1456,14 @@ class PeakFinder(Configurable):
                 for _lbl, _col in zip(_tick_objs, _colors):
                     _lbl.set_color(_col)
                 ax2.set_xlabel("Energy (eV)")
+                # Shade invalid region (math domain) in red
                 if _domain_min > _x_min:
                     ax.axvspan(_x_min, min(_domain_min, _x_max), alpha=0.08, color="red", zorder=0)
+                # Shade extrapolated-but-valid regions in orange
+                if not np.isnan(_pos_min) and _pos_min > max(_x_min, _domain_min):
+                    ax.axvspan(max(_x_min, _domain_min), min(_pos_min, _x_max), alpha=0.08, color="orange", zorder=0)
+                if not np.isnan(_pos_max) and _pos_max < _x_max:
+                    ax.axvspan(max(_pos_max, _x_min), _x_max, alpha=0.08, color="orange", zorder=0)
 
         ax.legend()
         plt.savefig("traces.png", dpi=600)
@@ -1908,7 +1930,7 @@ class Calibrate(Configurable):
                                         p0=guess_to_use, bounds=(bounds_lower, bounds_upper), maxfev=1000000)
                 p0Fit, p1Fit, p2Fit, p3Fit, p4Fit = params
                 perr = np.sqrt(np.diag(pcov))
-                energyParam.append({"detector": det, "peakNo": peakNo, "p0": p0Fit, "p1": p1Fit, "p2": p2Fit, "p3": p3Fit, "p4": p4Fit, "p0 error":perr[0], "p1 error":perr[1], "p2 error":perr[2], "p3 error":perr[3], "p4 error":perr[4]})
+                energyParam.append({"detector": det, "peakNo": peakNo, "p0": p0Fit, "p1": p1Fit, "p2": p2Fit, "p3": p3Fit, "p4": p4Fit, "p0 error":perr[0], "p1 error":perr[1], "p2 error":perr[2], "p3 error":perr[3], "p4 error":perr[4], "pos_min": float(xdata[goodData].min()), "pos_max": float(xdata[goodData].max())})
             except RuntimeError:
                 # Fit failed
                 energyParam.append({
@@ -1924,6 +1946,8 @@ class Calibrate(Configurable):
                     "p2 error":np.nan,
                     "p3 error":np.nan,
                     "p4 error":np.nan,
+                    "pos_min": np.nan,
+                    "pos_max": np.nan,
             })
         self.energyParam = pd.DataFrame(energyParam)
         return self
