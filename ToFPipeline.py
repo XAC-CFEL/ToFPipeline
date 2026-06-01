@@ -1283,13 +1283,10 @@ class PeakFinder(Configurable):
                 _x_min, _x_max = ax[j].get_xlim()
                 _t_ticks = np.linspace(_x_min, _x_max, eTickNum)
                 _t_labels = [f"{(_t - t0) / sampleRate * 1e9:.1f}" for _t in _t_ticks]
-                ax_t = ax[j].twiny()
-                ax_t.set_xlim(ax[j].get_xlim())
-                ax_t.set_xticks(_t_ticks)
-                ax_t.set_xticklabels(_t_labels, fontsize=7, rotation=30)
-                ax_t.set_xlabel("Time (ns)", fontsize=7)
+                ax[j].set_xticks(_t_ticks)
+                ax[j].set_xticklabels(_t_labels)
             j+=1
-        fig.supxlabel("Sample")
+        fig.supxlabel("Time (ns)" if sampleRate is not None else "Sample")
         fig.supylabel("Intensity")
         if savename is not False:
             plt.savefig(f"{savename}.png",dpi=600)
@@ -1478,11 +1475,9 @@ class PeakFinder(Configurable):
             _x_min, _x_max = ax.get_xlim()
             _t_ticks = np.linspace(_x_min, _x_max, eTickNum)
             _t_labels = [f"{(_t - t0) / sampleRate * 1e9:.1f}" for _t in _t_ticks]
-            ax_t = ax.twiny()
-            ax_t.set_xlim(ax.get_xlim())
-            ax_t.set_xticks(_t_ticks)
-            ax_t.set_xticklabels(_t_labels, fontsize=9, rotation=30)
-            ax_t.set_xlabel("Time (ns)")
+            ax.set_xticks(_t_ticks)
+            ax.set_xticklabels(_t_labels)
+            ax.set_xlabel("Time (ns)")
 
         ax.legend()
         plt.savefig("traces.png", dpi=600)
