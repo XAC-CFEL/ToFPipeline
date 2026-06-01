@@ -1116,7 +1116,8 @@ class PeakFinder(Configurable):
 
 
     def plot(self, trainIndex=None, pulseIndex=None, num=None, xmin=None, xmax=None, ymin=None, ymax=None, widthFraction=None,
-              logScale=False, showGaussianFit=False, raw=False, savename=False, energyCalib=None):
+              logScale=False, showGaussianFit=False, raw=False, savename=False,
+              energyCalib=None, eTickNum=6):
         widthFraction = widthFraction if widthFraction is not None else self.config.get("widthFraction", 0.5)
         train_ids = self.data.indexes["pulse"].get_level_values("trainId")
         pulse_ids = self.data.indexes["pulse"].get_level_values("pulseId")
@@ -1248,7 +1249,7 @@ class PeakFinder(Configurable):
                     _p0, _p1, _p2, _p3, _p4 = _row.iloc[0][["p0", "p1", "p2", "p3", "p4"]].values
                     _x_min, _x_max = ax[j].get_xlim()
                     _domain_min = -min(_p2, _p4) + 1e-6  # below this: sqrt of negative
-                    _all_ticks = np.linspace(_x_min, _x_max, 6)
+                    _all_ticks = np.linspace(_x_min, _x_max, eTickNum)
                     _labels = []
                     _colors = []
                     for _t in _all_ticks:
@@ -1276,7 +1277,8 @@ class PeakFinder(Configurable):
     
     def plotSingle(self, trainIndex=None, pulseIndex=None, ToF=0,
                    xmin=None, xmax=None, ymin=None, ymax=None,
-                   figsize=(8, 6), savename=False,widthFraction=0.5, logScale=False, showGaussianFit=False, energyCalib=None):
+                   figsize=(8, 6), savename=False,widthFraction=0.5, logScale=False, showGaussianFit=False,
+                   energyCalib=None, eTickNum=6):
 
         train_ids = self.data.indexes["pulse"].get_level_values("trainId")
         pulse_ids = self.data.indexes["pulse"].get_level_values("pulseId")
@@ -1421,7 +1423,7 @@ class PeakFinder(Configurable):
                 _p0, _p1, _p2, _p3, _p4 = _row.iloc[0][["p0", "p1", "p2", "p3", "p4"]].values
                 _x_min, _x_max = ax.get_xlim()
                 _domain_min = -min(_p2, _p4) + 1e-6  # below this: sqrt of negative
-                _all_ticks = np.linspace(_x_min, _x_max, 6)
+                _all_ticks = np.linspace(_x_min, _x_max, eTickNum)
                 _labels = []
                 _colors = []
                 for _t in _all_ticks:
