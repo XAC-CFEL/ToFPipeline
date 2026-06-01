@@ -1824,7 +1824,7 @@ class Calibrate(Configurable):
         return np.abs(z) <= thresh
 
         
-    def energy(self,relPos=False,peakNo=None,guess=None):
+    def energy(self,relPos=False,peakNo=None,guess=None, bindingEnergy=0):
         peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 0)
         guess = (guess or self.config.get("initial guess", None))  # Will be computed from data if None
         avgPos = self.results.groupby(["detector","peakNo","Photon Energy"])["pos"].mean().reset_index()
@@ -1839,7 +1839,7 @@ class Calibrate(Configurable):
             if len(energy)<3:
                 continue
             xdata = pos.values
-            ydata = energy.values
+            ydata = energy.values-bindingEnergy
             goodData = self.madFilter(xdata,ydata)
             
             # Use provided guess or compute data-driven initial guesses
