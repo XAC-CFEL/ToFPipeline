@@ -1452,7 +1452,7 @@ class PeakFinder(Configurable):
                 ax2 = ax.twiny()
                 ax2.set_xlim(ax.get_xlim())
                 ax2.set_xticks(_all_ticks)
-                _tick_objs = ax2.set_xticklabels(_labels, fontsize=9, rotation=30)
+                _tick_objs = ax2.set_xticklabels(_labels, fontsize=12, rotation=0)
                 for _lbl, _col in zip(_tick_objs, _colors):
                     _lbl.set_color(_col)
                 ax2.set_xlabel("Energy (eV)")
