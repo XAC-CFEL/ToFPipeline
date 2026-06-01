@@ -1117,7 +1117,7 @@ class PeakFinder(Configurable):
 
     def plot(self, trainIndex=None, pulseIndex=None, num=None, xmin=None, xmax=None, ymin=None, ymax=None, widthFraction=None,
               logScale=False, showGaussianFit=False, raw=False, savename=False,
-              energyCalib=None, eTickNum=6):
+              energyCalib=None, eTickNum=6, sampleRate=None):
         widthFraction = widthFraction if widthFraction is not None else self.config.get("widthFraction", 0.5)
         train_ids = self.data.indexes["pulse"].get_level_values("trainId")
         pulse_ids = self.data.indexes["pulse"].get_level_values("pulseId")
@@ -1279,6 +1279,15 @@ class PeakFinder(Configurable):
                         ax[j].axvspan(max(_x_min, _domain_min), min(_pos_min, _x_max), alpha=0.08, color="orange", zorder=0)
                     if not np.isnan(_pos_max) and _pos_max < _x_max:
                         ax[j].axvspan(max(_pos_max, _x_min), _x_max, alpha=0.08, color="orange", zorder=0)
+            if sampleRate is not None:
+                _x_min, _x_max = ax[j].get_xlim()
+                _t_ticks = np.linspace(_x_min, _x_max, eTickNum)
+                _t_labels = [f"{_t / sampleRate * 1e9:.1f}" for _t in _t_ticks]
+                ax_t = ax[j].twiny()
+                ax_t.set_xlim(ax[j].get_xlim())
+                ax_t.set_xticks(_t_ticks)
+                ax_t.set_xticklabels(_t_labels, fontsize=7, rotation=30)
+                ax_t.set_xlabel("Time (ns)", fontsize=7)
             j+=1
         fig.supxlabel("Sample")
         fig.supylabel("Intensity")
@@ -1289,7 +1298,7 @@ class PeakFinder(Configurable):
     def plotSingle(self, trainIndex=None, pulseIndex=None, ToF=0,
                    xmin=None, xmax=None, ymin=None, ymax=None,
                    figsize=(8, 6), savename=False,widthFraction=0.5, logScale=False, showGaussianFit=False,
-                   energyCalib=None, eTickNum=6):
+                   energyCalib=None, eTickNum=6, sampleRate=None):
 
         train_ids = self.data.indexes["pulse"].get_level_values("trainId")
         pulse_ids = self.data.indexes["pulse"].get_level_values("pulseId")
@@ -1464,6 +1473,16 @@ class PeakFinder(Configurable):
                     ax.axvspan(max(_x_min, _domain_min), min(_pos_min, _x_max), alpha=0.08, color="orange", zorder=0)
                 if not np.isnan(_pos_max) and _pos_max < _x_max:
                     ax.axvspan(max(_pos_max, _x_min), _x_max, alpha=0.08, color="orange", zorder=0)
+
+        if sampleRate is not None:
+            _x_min, _x_max = ax.get_xlim()
+            _t_ticks = np.linspace(_x_min, _x_max, eTickNum)
+            _t_labels = [f"{_t / sampleRate * 1e9:.1f}" for _t in _t_ticks]
+            ax_t = ax.twiny()
+            ax_t.set_xlim(ax.get_xlim())
+            ax_t.set_xticks(_t_ticks)
+            ax_t.set_xticklabels(_t_labels, fontsize=9, rotation=30)
+            ax_t.set_xlabel("Time (ns)")
 
         ax.legend()
         plt.savefig("traces.png", dpi=600)
