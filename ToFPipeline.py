@@ -1116,7 +1116,7 @@ class PeakFinder(Configurable):
 
 
     def plot(self, trainIndex=None, pulseIndex=None, num=None, xmin=None, xmax=None, ymin=None, ymax=None, widthFraction=None,
-              logScale=False, showGaussianFit=False, raw=False, savename=False):
+              logScale=False, showGaussianFit=False, raw=False, savename=False, energyCalib=None):
         widthFraction = widthFraction if widthFraction is not None else self.config.get("widthFraction", 0.5)
         train_ids = self.data.indexes["pulse"].get_level_values("trainId")
         pulse_ids = self.data.indexes["pulse"].get_level_values("pulseId")
@@ -1242,6 +1242,25 @@ class PeakFinder(Configurable):
                             # Plot sum of all Gaussians if multiple
                             if gaussCount > 1:
                                 ax[j].plot(xFit, totalYFit, color=tolBlack, linewidth=2.5, linestyle='-', alpha=0.8)
+            if energyCalib is not None:
+                _params = None
+                if isinstance(energyCalib, pd.DataFrame):
+                    _row = energyCalib[energyCalib["detector"] == ToF]
+                    if not _row.empty:
+                        _params = tuple(_row.iloc[0][["p0", "p1", "p2", "p3", "p4"]].values)
+                elif isinstance(energyCalib, dict) and ToF in energyCalib:
+                    _v = energyCalib[ToF]
+                    _params = tuple(_v.values()) if isinstance(_v, dict) else tuple(_v)
+                if _params is not None:
+                    _p0, _p1, _p2, _p3, _p4 = _params
+                    _x_min, _x_max = ax[j].get_xlim()
+                    _sample_ticks = np.linspace(_x_min, _x_max, 6)
+                    _energy_ticks = energyCalibFunc(_sample_ticks, _p0, _p1, _p2, _p3, _p4)
+                    ax2 = ax[j].twiny()
+                    ax2.set_xlim(ax[j].get_xlim())
+                    ax2.set_xticks(_sample_ticks)
+                    ax2.set_xticklabels([f"{e:.1f}" for e in _energy_ticks], fontsize=7, rotation=30)
+                    ax2.set_xlabel("Energy (eV)", fontsize=7)
             j+=1
         fig.supxlabel("Sample")
         fig.supylabel("Intensity")
@@ -1251,7 +1270,7 @@ class PeakFinder(Configurable):
     
     def plotSingle(self, trainIndex=None, pulseIndex=None, ToF=0,
                    xmin=None, xmax=None, ymin=None, ymax=None,
-                   figsize=(8, 6), savename=False,widthFraction=0.5, logScale=False, showGaussianFit=False):
+                   figsize=(8, 6), savename=False,widthFraction=0.5, logScale=False, showGaussianFit=False, energyCalib=None):
 
         train_ids = self.data.indexes["pulse"].get_level_values("trainId")
         pulse_ids = self.data.indexes["pulse"].get_level_values("pulseId")
@@ -1389,7 +1408,27 @@ class PeakFinder(Configurable):
                 else:
                     if peakNo == 0:
                         print("Gaussian fit columns not found. Run .fitGaussians() first.")
-        
+
+        if energyCalib is not None:
+            _params = None
+            if isinstance(energyCalib, pd.DataFrame):
+                _row = energyCalib[energyCalib["detector"] == ToF]
+                if not _row.empty:
+                    _params = tuple(_row.iloc[0][["p0", "p1", "p2", "p3", "p4"]].values)
+            elif isinstance(energyCalib, dict) and ToF in energyCalib:
+                _v = energyCalib[ToF]
+                _params = tuple(_v.values()) if isinstance(_v, dict) else tuple(_v)
+            if _params is not None:
+                _p0, _p1, _p2, _p3, _p4 = _params
+                _x_min, _x_max = ax.get_xlim()
+                _sample_ticks = np.linspace(_x_min, _x_max, 6)
+                _energy_ticks = energyCalibFunc(_sample_ticks, _p0, _p1, _p2, _p3, _p4)
+                ax2 = ax.twiny()
+                ax2.set_xlim(ax.get_xlim())
+                ax2.set_xticks(_sample_ticks)
+                ax2.set_xticklabels([f"{e:.1f}" for e in _energy_ticks], fontsize=9, rotation=30)
+                ax2.set_xlabel("Energy (eV)")
+
         ax.legend()
         plt.savefig("traces.png", dpi=600)
         return self
