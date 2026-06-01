@@ -1835,11 +1835,11 @@ class Calibrate(Configurable):
             if relPos:
                 pos0 = pd.DataFrame(avgPos[(avgPos["detector"]==det)&(avgPos["peakNo"]==0)]["pos"]).reset_index()
                 pos = pos - pos0["pos"]
-            energy = avgPos[(avgPos["detector"]==det)&(avgPos["peakNo"]==peakNo)]["Photon Energy"]
+            energy = avgPos[(avgPos["detector"]==det)&(avgPos["peakNo"]==peakNo)]["Photon Energy"]-bindingEnergy
             if len(energy)<3:
                 continue
             xdata = pos.values
-            ydata = energy.values-bindingEnergy
+            ydata = energy.values
             goodData = self.madFilter(xdata,ydata)
             
             # Use provided guess or compute data-driven initial guesses
