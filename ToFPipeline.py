@@ -1281,10 +1281,16 @@ class PeakFinder(Configurable):
                         ax[j].axvspan(max(_pos_max, _x_min), _x_max, alpha=0.08, color="orange", zorder=0)
             if sampleRate is not None:
                 _x_min, _x_max = ax[j].get_xlim()
-                _t_ticks = np.linspace(_x_min, _x_max, eTickNum)
+                _step = (_x_max - _x_min) / (eTickNum - 1)
+                _n_min = int(np.floor((_x_min - t0) / _step))
+                _n_max = int(np.ceil((_x_max - t0) / _step))
+                _t_ticks = [t0 + n * _step for n in range(_n_min, _n_max + 1)
+                            if _x_min <= t0 + n * _step <= _x_max]
                 _t_labels = [f"{(_t - t0) / sampleRate * 1e9:.1f}" for _t in _t_ticks]
                 ax[j].set_xticks(_t_ticks)
                 ax[j].set_xticklabels(_t_labels)
+                if _x_min <= t0 <= _x_max:
+                    ax[j].axvline(t0, color="gray", linewidth=0.8, linestyle="--", zorder=1)
             j+=1
         fig.supxlabel("Time (ns)" if sampleRate is not None else "Sample")
         fig.supylabel("Intensity")
@@ -1473,11 +1479,17 @@ class PeakFinder(Configurable):
 
         if sampleRate is not None:
             _x_min, _x_max = ax.get_xlim()
-            _t_ticks = np.linspace(_x_min, _x_max, eTickNum)
+            _step = (_x_max - _x_min) / (eTickNum - 1)
+            _n_min = int(np.floor((_x_min - t0) / _step))
+            _n_max = int(np.ceil((_x_max - t0) / _step))
+            _t_ticks = [t0 + n * _step for n in range(_n_min, _n_max + 1)
+                        if _x_min <= t0 + n * _step <= _x_max]
             _t_labels = [f"{(_t - t0) / sampleRate * 1e9:.1f}" for _t in _t_ticks]
             ax.set_xticks(_t_ticks)
             ax.set_xticklabels(_t_labels)
             ax.set_xlabel("Time (ns)")
+            if _x_min <= t0 <= _x_max:
+                ax.axvline(t0, color="gray", linewidth=0.8, linestyle="--", zorder=1)
 
         ax.legend()
         plt.savefig("traces.png", dpi=600)
