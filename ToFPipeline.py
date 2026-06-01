@@ -1827,7 +1827,7 @@ class Calibrate(Configurable):
     def energy(self,relPos=False,peakNo=None,guess=None, bindingEnergy=0):
         peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 0)
         guess = (guess or self.config.get("initial guess", None))  # Will be computed from data if None
-        avgPos = self.results.groupby(["detector","peakNo","Photon Energy"])["pos"].mean().reset_index()-bindingEnergy
+        avgPos = self.results.groupby(["detector","peakNo","Photon Energy"])["pos"].mean().reset_index()
         energyParam = []
         transmissionParam = []
         for det in avgPos["detector"].unique():
@@ -1839,7 +1839,7 @@ class Calibrate(Configurable):
             if len(energy)<3:
                 continue
             xdata = pos.values
-            ydata = energy.values
+            ydata = energy.values - bindingEnergy
             goodData = self.madFilter(xdata,ydata)
             
             # Use provided guess or compute data-driven initial guesses
@@ -1951,7 +1951,7 @@ class Calibrate(Configurable):
         return self
                 
 
-    def plotEnergy(self, peakNo = None, plotReg = True, relPos=False, ymin=None, ymax=None, xmin=None, xmax=None):
+    def plotEnergy(self, peakNo = None, plotReg = True, relPos=False, ymin=None, ymax=None, xmin=None, xmax=None, bindingEnergy=0):
         peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 0)
         plotYNum = int(np.ceil(self.results["detector"].nunique()/4))
         fig, ax = plt.subplots(plotYNum,4,figsize=(8, 2*plotYNum),sharex='all', sharey='all')
@@ -1967,7 +1967,7 @@ class Calibrate(Configurable):
                 pos = pos - pos0
                         
             xdata = pos["pos"]
-            ydata = self.results[(self.results["peakNo"]==peakNo)&(self.results["detector"]==i)]["Photon Energy"]
+            ydata = self.results[(self.results["peakNo"]==peakNo)&(self.results["detector"]==i)]["Photon Energy"]-bindingEnergy
             
             if plotReg:
                 goodData = self.madFilter(xdata,ydata)
