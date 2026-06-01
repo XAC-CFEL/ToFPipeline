@@ -2121,7 +2121,7 @@ class Fitter(Configurable):
                 def model(theta, beta2, scale):
                     return polarization_model(theta, Plin=setPlin, phi=phi_rad_fix, beta2=beta2, scale=scale)
                 p0     = [beta0, 1.0]
-                bounds = ([-4.0, 0.0], [4.0, 10.0])
+                bounds = ([-4.0, 0.0], [4.0, 1000.0])
                 popt, pcov = curve_fit(model, theta, trace, p0=p0, bounds=bounds, **fit_kws)
                 beta2_fit, scale_fit = popt
                 sigma_beta2 = np.sqrt(pcov[0, 0])
@@ -2149,7 +2149,7 @@ class Fitter(Configurable):
                 def model(theta, phi, beta2, scale):
                     return polarization_model(theta, Plin=setPlin, phi=phi, beta2=beta2, scale=scale)
                 p0     = [0.0, beta0, 1.0]
-                bounds = ([-np.pi, -4.0, 0.0], [np.pi, 4.0, 10.0])
+                bounds = ([-np.pi, -4.0, 0.0], [np.pi, 4.0, 1000.0])
                 popt, pcov = curve_fit(model, theta, trace, p0=p0, bounds=bounds, **fit_kws)
                 phi_rad_fit, beta2_fit, scale_fit = popt
                 sigma_phi = np.rad2deg(np.sqrt(pcov[0, 0]))
@@ -2159,7 +2159,7 @@ class Fitter(Configurable):
                 def model(theta, phi, scale):
                     return polarization_model(theta, Plin=setPlin, phi=phi, beta2=beta, scale=scale)
                 p0     = [0.0, 1.0]
-                bounds = ([-np.pi, 0.0], [np.pi, 10.0])
+                bounds = ([-np.pi, 0.0], [np.pi, 1000.0])
                 popt, pcov = curve_fit(model, theta, trace, p0=p0, bounds=bounds, **fit_kws)
                 phi_rad_fit, scale_fit = popt
                 beta2_fit = beta
@@ -2178,7 +2178,7 @@ class Fitter(Configurable):
                 def model(theta, Plin, beta2, scale):
                     return polarization_model(theta, Plin=Plin, phi=phi_rad_fix, beta2=beta2, scale=scale)
                 p0     = [0.5, beta0, 1.0]
-                bounds = ([0.0, -4.0, 0.0], [2.0, 4.0, 10.0])
+                bounds = ([0.0, -4.0, 0.0], [2.0, 4.0, 1000.0])
                 popt, pcov = curve_fit(model, theta, trace, p0=p0, bounds=bounds, **fit_kws)
                 Plin_fit, beta2_fit, scale_fit = popt
                 sigma_P     = np.sqrt(pcov[0, 0])
@@ -2188,7 +2188,7 @@ class Fitter(Configurable):
                 def model(theta, Plin, scale):
                     return polarization_model(theta, Plin=Plin, phi=phi_rad_fix, beta2=beta, scale=scale)
                 p0     = [0.5, 1.0]
-                bounds = ([0.0, 0.0], [2.0, 10.0])
+                bounds = ([0.0, 0.0], [2.0, 1000.0])
                 popt, pcov = curve_fit(model, theta, trace, p0=p0, bounds=bounds, **fit_kws)
                 Plin_fit, scale_fit = popt
                 beta2_fit = beta
@@ -2206,7 +2206,7 @@ class Fitter(Configurable):
                 def model(theta, A, B, beta2, scale):
                     return sepModel(theta, A, B, beta2=beta2, scale=scale)
                 p0     = [0.0, 0.0, beta0, 1.0]
-                bounds = ([-2.0, -2*np.pi, -4.0, 0.0], [2.0, 2*np.pi, 4.0, 10.0])
+                bounds = ([-2.0, -2*np.pi, -4.0, 0.0], [2.0, 2*np.pi, 4.0, 1000.0])
                 popt, pcov = curve_fit(model, theta, trace, p0=p0, bounds=bounds, **fit_kws)
                 A_fit, B_fit, beta2_fit, scale_fit = popt
                 cov_AB = pcov[:2, :2]
@@ -2216,7 +2216,7 @@ class Fitter(Configurable):
                 def model(theta, A, B, scale):
                     return sepModel(theta, A, B, beta2=beta, scale=scale)
                 p0     = [0.0, 0.0, 1.0]
-                bounds = ([-2.0, -2*np.pi, 0.0], [2.0, 2*np.pi, 10.0])
+                bounds = ([-2.0, -2*np.pi, 0.0], [2.0, 2*np.pi, 1000.0])
                 popt, pcov = curve_fit(model, theta, trace, p0=p0, bounds=bounds, **fit_kws)
                 A_fit, B_fit, scale_fit = popt
                 beta2_fit = beta
