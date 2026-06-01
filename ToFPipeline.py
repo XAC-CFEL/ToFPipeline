@@ -1250,19 +1250,19 @@ class PeakFinder(Configurable):
                     _pos_min = _row.iloc[0].get("pos_min", np.nan)
                     _pos_max = _row.iloc[0].get("pos_max", np.nan)
                     _x_min, _x_max = ax[j].get_xlim()
-                    _domain_min = -min(_p2, _p4) + 1e-6  # below this: sqrt of negative
                     _all_ticks = np.linspace(_x_min, _x_max, eTickNum)
                     _labels = []
                     _colors = []
                     for _t in _all_ticks:
-                        if _t + _p2 <= 0 or _t + _p4 <= 0:
+                        _e = energyCalibFuncInverse(_t, _p0, _p1, _p2, _p3, _p4)
+                        if np.isnan(_e):
                             _labels.append("\u2014")
                             _colors.append("red")
                         elif (not np.isnan(_pos_min) and _t < _pos_min) or (not np.isnan(_pos_max) and _t > _pos_max):
-                            _labels.append(f"{energyCalibFunc(_t, _p0, _p1, _p2, _p3, _p4):.1f}")
-                            _colors.append("#CC6600")  # orange: extrapolated but valid
+                            _labels.append(f"{_e:.1f}")
+                            _colors.append("#CC6600")  # orange: extrapolated
                         else:
-                            _labels.append(f"{energyCalibFunc(_t, _p0, _p1, _p2, _p3, _p4):.1f}")
+                            _labels.append(f"{_e:.1f}")
                             _colors.append("black")
                     ax2 = ax[j].twiny()
                     ax2.set_xlim(ax[j].get_xlim())
@@ -1271,12 +1271,9 @@ class PeakFinder(Configurable):
                     for _lbl, _col in zip(_tick_objs, _colors):
                         _lbl.set_color(_col)
                     ax2.set_xlabel("Energy (eV)", fontsize=7)
-                    # Shade invalid region (math domain) in red
-                    if _domain_min > _x_min:
-                        ax[j].axvspan(_x_min, min(_domain_min, _x_max), alpha=0.08, color="red", zorder=0)
-                    # Shade extrapolated-but-valid regions in orange
-                    if not np.isnan(_pos_min) and _pos_min > max(_x_min, _domain_min):
-                        ax[j].axvspan(max(_x_min, _domain_min), min(_pos_min, _x_max), alpha=0.08, color="orange", zorder=0)
+                    # Shade extrapolated regions in orange
+                    if not np.isnan(_pos_min) and _pos_min > _x_min:
+                        ax[j].axvspan(_x_min, min(_pos_min, _x_max), alpha=0.08, color="orange", zorder=0)
                     if not np.isnan(_pos_max) and _pos_max < _x_max:
                         ax[j].axvspan(max(_pos_max, _x_min), _x_max, alpha=0.08, color="orange", zorder=0)
             j+=1
@@ -1435,19 +1432,19 @@ class PeakFinder(Configurable):
                 _pos_min = _row.iloc[0].get("pos_min", np.nan)
                 _pos_max = _row.iloc[0].get("pos_max", np.nan)
                 _x_min, _x_max = ax.get_xlim()
-                _domain_min = -min(_p2, _p4) + 1e-6  # below this: sqrt of negative
                 _all_ticks = np.linspace(_x_min, _x_max, eTickNum)
                 _labels = []
                 _colors = []
                 for _t in _all_ticks:
-                    if _t + _p2 <= 0 or _t + _p4 <= 0:
+                    _e = energyCalibFuncInverse(_t, _p0, _p1, _p2, _p3, _p4)
+                    if np.isnan(_e):
                         _labels.append("\u2014")
                         _colors.append("red")
                     elif (not np.isnan(_pos_min) and _t < _pos_min) or (not np.isnan(_pos_max) and _t > _pos_max):
-                        _labels.append(f"{energyCalibFunc(_t, _p0, _p1, _p2, _p3, _p4):.1f}")
-                        _colors.append("#CC6600")  # orange: extrapolated but valid
+                        _labels.append(f"{_e:.1f}")
+                        _colors.append("#CC6600")  # orange: extrapolated
                     else:
-                        _labels.append(f"{energyCalibFunc(_t, _p0, _p1, _p2, _p3, _p4):.1f}")
+                        _labels.append(f"{_e:.1f}")
                         _colors.append("black")
                 ax2 = ax.twiny()
                 ax2.set_xlim(ax.get_xlim())
@@ -1456,12 +1453,9 @@ class PeakFinder(Configurable):
                 for _lbl, _col in zip(_tick_objs, _colors):
                     _lbl.set_color(_col)
                 ax2.set_xlabel("Energy (eV)")
-                # Shade invalid region (math domain) in red
-                if _domain_min > _x_min:
-                    ax.axvspan(_x_min, min(_domain_min, _x_max), alpha=0.08, color="red", zorder=0)
-                # Shade extrapolated-but-valid regions in orange
-                if not np.isnan(_pos_min) and _pos_min > max(_x_min, _domain_min):
-                    ax.axvspan(max(_x_min, _domain_min), min(_pos_min, _x_max), alpha=0.08, color="orange", zorder=0)
+                # Shade extrapolated regions in orange
+                if not np.isnan(_pos_min) and _pos_min > _x_min:
+                    ax.axvspan(_x_min, min(_pos_min, _x_max), alpha=0.08, color="orange", zorder=0)
                 if not np.isnan(_pos_max) and _pos_max < _x_max:
                     ax.axvspan(max(_pos_max, _x_min), _x_max, alpha=0.08, color="orange", zorder=0)
 
@@ -3050,3 +3044,29 @@ def findPeaksInTrace_sp(trace, peakNo, cutOff=0, widthFactor=2, symmetric=False,
 
 def energyCalibFunc(e, p0, p1, p2, p3, p4):
     return p0 + (p1/((e+p2)**(1/2))) + (p3/((e+p4)**(3/2)))
+
+def energyCalibFuncInverse(sample, p0, p1, p2, p3, p4, e_max=1e6):
+    """
+    Numerically invert the calibration formula for axis-tick energy labels.
+
+    The physical formula is:  sample = p0 + p1/sqrt(e+p2) + p3/(e+p4)^(3/2)
+    where e is kinetic energy (eV) and sample is the ToF channel number.
+    Given a sample position, this solves for e using Brent's method.
+
+    Returns np.nan if no solution is found in [e_min, e_max].
+    """
+    from scipy.optimize import brentq
+    # denominators require e+p2 > 0 and e+p4 > 0
+    e_min = max(-p2, -p4) + 1e-3
+
+    def residual(e):
+        return p0 + p1 / (e + p2)**0.5 + p3 / (e + p4)**1.5 - sample
+
+    try:
+        f_lo = residual(e_min)
+        f_hi = residual(e_max)
+        if f_lo * f_hi >= 0:
+            return np.nan
+        return brentq(residual, e_min, e_max, xtol=1e-4)
+    except Exception:
+        return np.nan
