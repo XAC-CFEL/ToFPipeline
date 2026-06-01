@@ -1827,7 +1827,7 @@ class Calibrate(Configurable):
     def energy(self,relPos=False,peakNo=None,guess=None, bindingEnergy=0):
         peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 0)
         guess = (guess or self.config.get("initial guess", None))  # Will be computed from data if None
-        avgPos = self.results.groupby(["detector","peakNo","Photon Energy"])["pos"].mean().reset_index()
+        avgPos = self.results.groupby(["detector","peakNo","Photon Energy"])["pos"].mean().reset_index()-bindingEnergy
         energyParam = []
         transmissionParam = []
         for det in avgPos["detector"].unique():
@@ -1835,7 +1835,7 @@ class Calibrate(Configurable):
             if relPos:
                 pos0 = pd.DataFrame(avgPos[(avgPos["detector"]==det)&(avgPos["peakNo"]==0)]["pos"]).reset_index()
                 pos = pos - pos0["pos"]
-            energy = avgPos[(avgPos["detector"]==det)&(avgPos["peakNo"]==peakNo)]["Photon Energy"]-bindingEnergy
+            energy = avgPos[(avgPos["detector"]==det)&(avgPos["peakNo"]==peakNo)]["Photon Energy"]
             if len(energy)<3:
                 continue
             xdata = pos.values
