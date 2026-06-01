@@ -1117,7 +1117,7 @@ class PeakFinder(Configurable):
 
     def plot(self, trainIndex=None, pulseIndex=None, num=None, xmin=None, xmax=None, ymin=None, ymax=None, widthFraction=None,
               logScale=False, showGaussianFit=False, raw=False, savename=False,
-              energyCalib=None, eTickNum=6, sampleRate=None):
+              energyCalib=None, eTickNum=6, sampleRate=None, t0=0):
         widthFraction = widthFraction if widthFraction is not None else self.config.get("widthFraction", 0.5)
         train_ids = self.data.indexes["pulse"].get_level_values("trainId")
         pulse_ids = self.data.indexes["pulse"].get_level_values("pulseId")
@@ -1282,7 +1282,7 @@ class PeakFinder(Configurable):
             if sampleRate is not None:
                 _x_min, _x_max = ax[j].get_xlim()
                 _t_ticks = np.linspace(_x_min, _x_max, eTickNum)
-                _t_labels = [f"{_t / sampleRate * 1e9:.1f}" for _t in _t_ticks]
+                _t_labels = [f"{(_t - t0) / sampleRate * 1e9:.1f}" for _t in _t_ticks]
                 ax_t = ax[j].twiny()
                 ax_t.set_xlim(ax[j].get_xlim())
                 ax_t.set_xticks(_t_ticks)
@@ -1298,7 +1298,7 @@ class PeakFinder(Configurable):
     def plotSingle(self, trainIndex=None, pulseIndex=None, ToF=0,
                    xmin=None, xmax=None, ymin=None, ymax=None,
                    figsize=(8, 6), savename=False,widthFraction=0.5, logScale=False, showGaussianFit=False,
-                   energyCalib=None, eTickNum=6, sampleRate=None):
+                   energyCalib=None, eTickNum=6, sampleRate=None, t0=0):
 
         train_ids = self.data.indexes["pulse"].get_level_values("trainId")
         pulse_ids = self.data.indexes["pulse"].get_level_values("pulseId")
@@ -1477,7 +1477,7 @@ class PeakFinder(Configurable):
         if sampleRate is not None:
             _x_min, _x_max = ax.get_xlim()
             _t_ticks = np.linspace(_x_min, _x_max, eTickNum)
-            _t_labels = [f"{_t / sampleRate * 1e9:.1f}" for _t in _t_ticks]
+            _t_labels = [f"{(_t - t0) / sampleRate * 1e9:.1f}" for _t in _t_ticks]
             ax_t = ax.twiny()
             ax_t.set_xlim(ax.get_xlim())
             ax_t.set_xticks(_t_ticks)
