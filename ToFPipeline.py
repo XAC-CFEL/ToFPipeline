@@ -1421,11 +1421,11 @@ class PeakFinder(Configurable):
                         y_fit = amp * np.exp(-0.5 * ((x_fit - center) / sigma)**2)
                         
                         # FWHM line at half the peak height
-                        """"""
+                        """
                         ax.hlines(y=amp/2, xmin=center-fwhm_half, xmax=center+fwhm_half, 
                                  colors=color, linestyle="-", linewidth=2, alpha=0.7,
                                  label=label_fwhm if peakNo == 0 else '')
-                        """"""
+                        """
                         
                         label_fit = f'Gauss {i+1}' if gauss_count > 1 else 'Gaussian Fit'
                         ax.plot(x_fit, y_fit, color=color, linewidth=2, alpha=0.7, linestyle='--', 
