@@ -1435,7 +1435,7 @@ class PeakFinder(Configurable):
                     # Plot sum of all Gaussians if multiple
                     if gauss_count > 1:
                         ax.plot(x_fit, total_y_fit, color=tolBlack, linewidth=2.5, linestyle='-', 
-                               label='Total Fit' if peakNo == 0 else '', alpha=0.8)
+                               label='Total Fit' if peakNo == 0 else '', alpha=0.5)
                 else:
                     if peakNo == 0:
                         print("Gaussian fit columns not found. Run .fitGaussians() first.")
