@@ -1060,18 +1060,23 @@ class PeakFinder(Configurable):
         
 
     
-        results_list = []
-        for det in tqdm(range(self.data.sizes["detector"]), desc="Finding peaks in ToFs",position=2,leave=False,disable=True):
-            sliceDet = self.data.isel(detector=det)
-            if noiseRegion is not None:
-                sliceNoise = sliceDet.isel(sample=slice(noiseRegion[0], noiseRegion[1]))
-                noiseAmp = [float(sliceNoise.min().compute()), float(sliceNoise.max().compute())]
-            else:
-                noiseAmp = [0,1]
-            sliceDet = sliceDet.isel(sample=slice(roi[0],roi[1]))
+        # Precompute per-detector noise amplitude in a single .compute() call so dask
+        # can schedule all detectors in parallel instead of N serial evaluations.
+        if noiseRegion is not None:
+            noiseSlice = self.data.isel(sample=slice(noiseRegion[0], noiseRegion[1]))
+            noiseMin_da = noiseSlice.min(dim=["sample", "pulse"]).compute()  # shape: (detector,)
+            noiseMax_da = noiseSlice.max(dim=["sample", "pulse"]).compute()  # shape: (detector,)
+        else:
+            det_coords = self.data.detector.values
+            noiseMin_da = xr.DataArray(np.zeros(len(det_coords)), dims=["detector"], coords={"detector": det_coords})
+            noiseMax_da = xr.DataArray(np.ones(len(det_coords)),  dims=["detector"], coords={"detector": det_coords})
 
-            peakFunc = partial(
-                findPeaksInTrace_np,
+        sliceData = self.data.isel(sample=slice(roi[0], roi[1]))
+
+        def peakFuncWithNoise(trace, noiseMin, noiseMax):
+            noiseAmp = [float(noiseMin), float(noiseMax)]
+            return findPeaksInTrace_np(
+                trace,
                 peakNo=peakNo,
                 cutOff=threshold,
                 noiseAmp=noiseAmp,
@@ -1083,28 +1088,29 @@ class PeakFinder(Configurable):
                 maxSlope=maxSlope,
                 slopeStartHeight=slopeStartHeight
             )
-            sample_coords = sliceDet["sample"].values # the actual sample indices
-            
-        
-            results_det = xr.apply_ufunc(
-                peakFunc,
-                sliceDet,
-                input_core_dims=[["sample"]],
-                vectorize=True,
-                dask="parallelized",
-                output_dtypes=[object]
-            )
-            
-            noiseFloor = noiseAmp[1] - noiseAmp[0]
-            arr = results_det.values
-            for idx in np.ndindex(arr.shape):
-                peaks = arr[idx]
-                if peaks is not None:
-                    arr[idx] = [list(peak) + [noiseFloor] for peak in peaks]
-            results_det = results_det.copy(data=arr)
-            results_list.append(results_det)
 
-        self.results = xr.concat(results_list, dim="detector")
+        # Single apply_ufunc over all detectors — builds one unified dask task graph.
+        # noiseMin_da/noiseMax_da have shape (detector,); apply_ufunc broadcasts them
+        # across the pulse dimension via vectorize=True.
+        self.results = xr.apply_ufunc(
+            peakFuncWithNoise,
+            sliceData,
+            noiseMin_da,
+            noiseMax_da,
+            input_core_dims=[["sample"], [], []],
+            vectorize=True,
+            dask="parallelized",
+            output_dtypes=[object]
+        )
+
+        noiseFloor_arr = (noiseMax_da - noiseMin_da).values  # shape: (n_detectors,)
+        arr = self.results.values  # shape: (n_detectors, n_pulses)
+        for idx in np.ndindex(arr.shape):
+            peaks = arr[idx]
+            if peaks is not None:
+                noiseFloor = float(noiseFloor_arr[idx[0]])
+                arr[idx] = [list(peak) + [noiseFloor] for peak in peaks]
+        self.results = self.results.copy(data=arr)
         self.results = self.results.persist()
         
         if isinstance(self.results, (xr.DataArray, xr.Dataset)):  
@@ -2956,16 +2962,16 @@ def findPeak_np(trace, widthFactor=2, symmetric=False, maxWidth=20, minWidth=Fal
             rawHeight = analysisTrace[peak]
             if rawHeight > 0:
                 threshold = rawHeight * slopeStartHeight
-                left_sl = analysisTrace[max(0, peak-maxWidth):peak+1][::-1]
-                right_sl = analysisTrace[peak:peak+maxWidth+1]
-                prelim_wR = np.argmax(right_sl < threshold)
-                if prelim_wR == 0 and right_sl[0] >= threshold:
-                    prelim_wR = min(maxWidth, len(right_sl)-1)
-                prelim_wL = -np.argmax(left_sl < threshold)
-                if prelim_wL == 0 and left_sl[0] >= threshold:
-                    prelim_wL = -min(maxWidth, len(left_sl)-1)
-                startOffsetL = prelim_wL  # negative
-                startOffsetR = prelim_wR  # positive
+                leftSlice = analysisTrace[max(0, peak-maxWidth):peak+1][::-1]
+                rightSlice = analysisTrace[peak:peak+maxWidth+1]
+                prelimWR = np.argmax(rightSlice < threshold)
+                if prelimWR == 0 and rightSlice[0] >= threshold:
+                    prelimWR = min(maxWidth, len(rightSlice)-1)
+                prelimWL = -np.argmax(leftSlice < threshold)
+                if prelimWL == 0 and leftSlice[0] >= threshold:
+                    prelimWL = -min(maxWidth, len(leftSlice)-1)
+                startOffsetL = prelimWL  # negative
+                startOffsetR = prelimWR  # positive
         
         # Use the original unzeroed trace for baseline slope analysis
         _, baseL, baseR = findPeakBaseline(analysisTrace, peak, slopeLength=slopeLength, maxSlope=maxSlope, startOffsetL=startOffsetL, startOffsetR=startOffsetR)
@@ -3042,39 +3048,6 @@ def findPeaksInTrace_np(trace, peakNo, cutOff=2, noiseAmp=[0,1], widthFactor=2,w
     
     return None  # Explicitly return None if no peaks found
 
-"""
-def findPeaksInTrace_sp(trace, peakNo, cutOff=0, widthFactor=2, symmetric=False, maxWidth=20):
-    results = []
-
-    traceCopy = trace.copy()
-    pos, optRes = find_peaks(traceCopy, height=cutOff)
-
-    i=0
-    if len(pos)==peakNo+1:
-        for peak in pos:
-            
-            height = optRes['peak_heights'][i]
-            leftSlice = trace[max(0, peak-maxWidth):peak+1][::-1]  # reverse for left
-            rightSlice = trace[peak:peak+maxWidth+1]
-            
-            widthR = np.argmax(rightSlice < height/2)
-            if widthR == 0 and rightSlice[0] >= height/2:
-                widthR = min(maxWidth, len(rightSlice)-1)
-            
-            widthL = -np.argmax(leftSlice < height/2)
-            if widthL == 0 and leftSlice[0] >= height/2:
-                widthL = -min(maxWidth, len(leftSlice)-1)
-            widthL = -min(abs(widthL),abs(widthR))
-            widthR = min(abs(widthL),abs(widthR))
-            area = trace[peak+widthL:peak+widthR].sum()
-            i+=1
-        
-            results.append([peak, height, widthL, widthR, area, baselineL, baselineR])
-
-        results_arr = np.array(results, dtype=float)
-        sorted_indices = np.argsort(results_arr[:, 0])  # sort by pos
-        return results_arr[sorted_indices]
-"""
 
 def energyCalibFunc(e, p0, p1, p2, p3, p4):
     return p0 + (p1/((e+p2)**(1/2))) + (p3/((e+p4)**(3/2)))
