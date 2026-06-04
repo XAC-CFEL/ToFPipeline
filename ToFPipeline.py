@@ -845,13 +845,9 @@ class PeakFinder(Configurable):
         """
         windowSize = windowSize if windowSize is not None else self.config.get("smoothWindow", 5)
         
-        # Apply rolling mean along the sample dimension, only where we have enough points
         smoothed = self.data.rolling(sample=windowSize, center=True, min_periods=windowSize).mean()
         
-        # Fill NaN values (at edges) with original data to preserve length
         self.data = smoothed.fillna(self.data)
-        
-        # Rechunk sample dimension to single chunk for downstream processing
         self.data = self.data.chunk({"sample": -1})
         
         self.data = self.data.persist()
@@ -2900,7 +2896,7 @@ def findPeakBaseline(trace, peak, slopeLength=5, maxSlope=4, startOffsetL=0, sta
         slope = trace[idxRight] - trace[idxCurrent]
         if -slope <= maxSlope:
             break
-        baselinePointR = idxRight
+        baselinePointR = idxCurrent
         j += 1
     
     # Use the actual baseline points for slope calculation
