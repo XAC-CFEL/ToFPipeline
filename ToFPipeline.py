@@ -2000,21 +2000,39 @@ class Calibrate(Configurable):
         self.transmissionParam = pd.DataFrame(transmissionParam)
         return self
 
-    def plotTransmission(self,ymin=None,ymax=None):
+    def plotTransmission(self, ymin=None, ymax=None, sampleRate=None, eTickNum=6, t0=0):
         plotYNum = int(np.ceil(self.results["detector"].nunique()/4))
         fig, ax = plt.subplots(plotYNum,4,figsize=(8, 2*plotYNum),sharex='all', sharey='all')
-        plt.ylabel ('Transmission Coefficient')
-        plt.xlabel ('Sample')
         ax = ax.flatten()
         j=0
         for ToF in self.transmissionParam["detector"].unique():
-            xdata = self.transmissionParam[(self.transmissionParam["detector"]==ToF)]["Photon Energy"]
+            if sampleRate is not None:
+                xdata = self.transmissionParam[(self.transmissionParam["detector"]==ToF)]["pos"]
+            else:
+                xdata = self.transmissionParam[(self.transmissionParam["detector"]==ToF)]["Photon Energy"]
             ydata = self.transmissionParam[(self.transmissionParam["detector"]==ToF)]["Transmission Coefficient"]
             ax[j].set_title(f"ToF: {ToF}")
             ax[j].grid(True)
             ax[j].plot(xdata,ydata,marker='.', color = 'teal',  markersize=2 ,alpha=1,linewidth = 0)
             ax[j].set_ylim([ymin, ymax])
             j+=1
+        if sampleRate is not None:
+            for a in ax[:j]:
+                _x_min, _x_max = a.get_xlim()
+                _step = (_x_max - _x_min) / (eTickNum - 1)
+                _n_min = int(np.floor((_x_min - t0) / _step))
+                _n_max = int(np.ceil((_x_max - t0) / _step))
+                _t_ticks = [t0 + n * _step for n in range(_n_min, _n_max + 1)
+                            if _x_min <= t0 + n * _step <= _x_max]
+                _t_labels = [f"{(_t - t0) / sampleRate * 1e9:.1f}" for _t in _t_ticks]
+                a.set_xticks(_t_ticks)
+                a.set_xticklabels(_t_labels)
+                if _x_min <= t0 <= _x_max:
+                    a.axvline(t0, color="gray", linewidth=0.8, linestyle="--", zorder=1)
+            fig.supxlabel("Time (ns)")
+        else:
+            fig.supxlabel("Photon Energy")
+        fig.supylabel("Transmission Coefficient")
         plt.savefig("Transmission.png",dpi=600)
         return self
                 
