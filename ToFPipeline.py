@@ -2881,7 +2881,7 @@ def findPeakBaseline(trace, peak, slopeLength=5, maxSlope=4, startOffsetL=0, sta
         slope = trace[idxCurrent] - trace[idxLeft]
         if slope <= maxSlope:
             break
-        baselinePointL = idxLeft
+        baselinePointL = idxLeft - (slopeLength//2)
         i -= 1
     
     # Walk right to find baseline end point
@@ -2896,7 +2896,7 @@ def findPeakBaseline(trace, peak, slopeLength=5, maxSlope=4, startOffsetL=0, sta
         slope = trace[idxRight] - trace[idxCurrent]
         if -slope <= maxSlope:
             break
-        baselinePointR = idxCurrent
+        baselinePointR = idxCurrent - (slopeLength//2)
         j += 1
     
     # Use the actual baseline points for slope calculation
