@@ -1488,7 +1488,7 @@ class PeakFinder(Configurable):
             _n_max = int(np.ceil((_x_max - t0) / _step))
             _t_ticks = [t0 + n * _step for n in range(_n_min, _n_max + 1)
                         if _x_min <= t0 + n * _step <= _x_max]
-            _t_labels = [f"{(_t - t0) / sampleRate * 1e9:.1f}" for _t in _t_ticks]
+            _t_labels = [f"{(_t - t0) / sampleRate * 1e9:.0f}" for _t in _t_ticks]
             ax.set_xticks(_t_ticks)
             ax.set_xticklabels(_t_labels)
             ax.set_xlabel("Time (ns)")
