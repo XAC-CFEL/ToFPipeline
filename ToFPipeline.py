@@ -2500,7 +2500,9 @@ class Plotter(Configurable):
         title=None,
         ax=None,
         direction=1,
-        orientation = "E"
+        orientation = "E",
+        sampleRate=None,
+        t0=0,
     ):
         """
         Plot data in polar coordinates.
@@ -2548,6 +2550,12 @@ class Plotter(Configurable):
         ax : matplotlib.axes.Axes or None
             Existing polar axes to draw into.  When ``None`` a new figure is
             created.
+        sampleRate : float or None
+            Sample rate in Hz.  When provided the radial axis is displayed in
+            nanoseconds instead of sample indices.
+        t0 : float
+            Reference sample index corresponding to t = 0 ns (used only when
+            *sampleRate* is given).  Default ``0``.
 
         Returns
         -------
@@ -2600,6 +2608,12 @@ class Plotter(Configurable):
             dr = 1.0
         rEdges = np.concatenate([[rVals[0] - dr / 2], rVals + dr / 2])
 
+        # Optionally convert the radial axis from samples to nanoseconds
+        if sampleRate is not None:
+            rEdgesPlot = (rEdges - t0) / sampleRate * 1e9
+        else:
+            rEdgesPlot = rEdges
+
         # ------------------------------------------------------------------
         # Set up axes
         # ------------------------------------------------------------------
@@ -2623,7 +2637,7 @@ class Plotter(Configurable):
             # pcolormesh(theta, r, C) → C shape (n_r, n_theta)
             mesh = ax.pcolormesh(
                 thetaEdges,
-                rEdges,
+                rEdgesPlot,
                 intensityGrid.T,
                 cmap="viridis",
                 vmin=vmin,
@@ -2648,7 +2662,7 @@ class Plotter(Configurable):
                 C = traces[i, :][np.newaxis, :]   # shape (1, n_sample)
                 ax.pcolormesh(
                     thetaEdges,
-                    rEdges,
+                    rEdgesPlot,
                     C.T,
                     cmap="viridis",
                     vmin=vmin,
@@ -2658,7 +2672,7 @@ class Plotter(Configurable):
 
             # Dummy mesh for colourbar
             mesh = ax.pcolormesh(
-                [0, 0.01], [rEdges[0], rEdges[-1]], [[vmin]], cmap="viridis",
+                [0, 0.01], [rEdgesPlot[0], rEdgesPlot[-1]], [[vmin]], cmap="viridis",
                 vmin=vmin, vmax=vmax, shading="auto"
             )
             mesh.set_visible(False)
@@ -2677,17 +2691,25 @@ class Plotter(Configurable):
                 peakAngles = selPeak["Angles"]
                 widthL = selPeak["width left"]
                 widthR = selPeak["width right"]
-                ax.scatter(np.deg2rad(peakAngles), peakPos, color=modelColor, marker="o")
-                for angle in peakAngles:
-                    ax.plot([np.deg2rad(angle), np.deg2rad(angle)], [peakPos + widthL, peakPos + widthR], color=modelColor, linewidth=0.5, linestyle="-")
+                if sampleRate is not None:
+                    peakPosPlot = (peakPos - t0) / sampleRate * 1e9
+                    widthLPlot = widthL / sampleRate * 1e9
+                    widthRPlot = widthR / sampleRate * 1e9
+                else:
+                    peakPosPlot = peakPos
+                    widthLPlot = widthL
+                    widthRPlot = widthR
+                ax.scatter(np.deg2rad(peakAngles), peakPosPlot, color=modelColor, marker="o")
+                for angle, pos_plot, wl, wr in zip(peakAngles, peakPosPlot, widthLPlot, widthRPlot):
+                    ax.plot([np.deg2rad(angle), np.deg2rad(angle)], [pos_plot + wl, pos_plot + wr], color=modelColor, linewidth=0.5, linestyle="-")
         # ------------------------------------------------------------------
         # Cosmetics
         # ------------------------------------------------------------------
         ax.set_theta_zero_location(orientation)
         ax.set_theta_direction(direction)
 
-        # Constrain radial axis to the selected sample range
-        ax.set_rlim(rEdges[0], rEdges[-1])
+        # Constrain radial axis to the selected sample/time range
+        ax.set_rlim(rEdgesPlot[0], rEdgesPlot[-1])
 
         # Remove outer border of the polar plot
         ax.spines["polar"].set_visible(False)
