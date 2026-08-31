@@ -2307,6 +2307,9 @@ class Fitter(Configurable):
         intensity_fit = polarization_model(theta_fit, Plin_fit, phi_rad_fit, beta2_fit, scale_fit)
 
         if plot:
+            _prev_preamble = plt.rcParams.get("text.latex.preamble", "")
+            if r"\usepackage{siunitx}" not in _prev_preamble:
+                plt.rcParams["text.latex.preamble"] = _prev_preamble + r"\usepackage{siunitx}"
             fig, ax = plt.subplots(figsize=(6,4), subplot_kw={'projection': 'polar'})
             if Plin_fit > 0.015:
                 ax.plot([phi_rad_fit, phi_rad_fit], [0, maxTrace], color="orange")
@@ -2328,6 +2331,8 @@ class Fitter(Configurable):
                             ha='center', va='center')
 
             def _nint(x):
+                if np.isnan(x):
+                    return 1
                 return max(1, len(str(abs(int(x)))))
 
             _val_rows = [(Plin_fit, sigma_P, 2), (phi_fit, sigma_phi, 1)]
@@ -2335,12 +2340,12 @@ class Fitter(Configurable):
                 _val_rows.append((beta2_fit, sigma_beta2, 4))
             _max_val_int = max(_nint(v) for v, _, __ in _val_rows)
             _max_val_dec = max(d for _, __, d in _val_rows)
-            _max_err_int = max((_nint(e) for _, e, __ in _val_rows if e != 0.0), default=1)
+            _max_err_int = max((_nint(e) for _, e, __ in _val_rows if e != 0.0 and not np.isnan(e)), default=1)
             _max_err_dec = _max_val_dec
             _tfmt = rf"{_max_val_int}.{_max_val_dec}+-{_max_err_int}.{_max_err_dec}"
 
-            plin_val = rf"{Plin_fit:.2f} +- {sigma_P:.2f}" if sigma_P != 0.0 else rf"{Plin_fit:.2f}"
-            phi_val  = rf"{phi_fit:.1f} +- {sigma_phi:.1f}" if sigma_phi != 0.0 else rf"{phi_fit:.1f}"
+            plin_val = rf"{Plin_fit:.2f} +- {sigma_P:.2f}" if sigma_P != 0.0 and not np.isnan(sigma_P) else rf"{Plin_fit:.2f}"
+            phi_val  = rf"{phi_fit:.1f} +- {sigma_phi:.1f}" if sigma_phi != 0.0 and not np.isnan(sigma_phi) else rf"{phi_fit:.1f}"
             plin_row = rf"$P_{{\mathrm{{lin}}}}$ & {plin_val} \\"
             phi_row  = rf"$\phi$ [$^\circ$] & {phi_val} \\"
             label = (
@@ -2367,6 +2372,7 @@ class Fitter(Configurable):
                 ax.legend(loc=_legend_loc)
             plt.savefig("pol.png", dpi=600)
             plt.show()
+            plt.rcParams["text.latex.preamble"] = _prev_preamble
             
         return fit_params, errors
 
