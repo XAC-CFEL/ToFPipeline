@@ -1,13 +1,10 @@
 Calibrate:
-  Transmission PeakNo: 1
-  beta: 2
+  Transmission PeakNo: 0
+  setPlin: 0
+  setPhi: 0
+  setBeta: 2
   peakNo: 1
 
-PhotonEnergyProcessor:
-  singleRun: False
-  energyStart: 0
-  energyStop: 30
-  energyStep: 1
 
 
 PeakFinder:

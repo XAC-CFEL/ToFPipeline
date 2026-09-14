@@ -1985,10 +1985,12 @@ class Calibrate(Configurable):
 
     def transmission(self, peakNo=None, setBeta=None, setPhi=None, setPlin=None,intMethod="height"):
         transmissionParam = []
-        """
-        beta = beta or self.config.get("beta",0)
+        
+        setBeta = setBeta or self.config.get("setBeta",0)
+        setPhi = setPhi or self.config.get("setPhi",0)
+        setPlin = setPlin or self.config.get("setPlin",0)
         peakNo = peakNo or self.config.get("Transmission PeakNo",0)
-        """
+        
         for energy in self.results["Photon Energy"].unique():
             for ToF in self.results["detector"].unique():
                 selData = self.results[(self.results["peakNo"]==peakNo)&(self.results["Photon Energy"]==energy)&(self.results["detector"]==ToF)]
