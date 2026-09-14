@@ -2928,8 +2928,8 @@ def findPeakBaseline(trace, peak, slopeLength=5, maxSlope=4, startOffsetL=0, sta
         slope = trace[idxCurrent] - trace[idxLeft]
         if slope <= maxSlope:
             break
-        baselinePointL = idxLeft + (slopeLength//2)
         i -= 1
+    baselinePointL = idxLeft + (slopeLength//2)
     
     # Walk right to find baseline end point
     j = startOffsetR  # start from peak (0) or from FWHM right edge (positive)
@@ -2940,11 +2940,11 @@ def findPeakBaseline(trace, peak, slopeLength=5, maxSlope=4, startOffsetL=0, sta
         # Bounds check
         if idxRight >= n or idxCurrent >= n:
             break
-        slope = trace[idxRight] - trace[idxCurrent]
-        if -slope <= maxSlope:
+        slope =  trace[idxCurrent] - trace[idxRight]
+        if slope <= maxSlope:
             break
-        baselinePointR = idxCurrent - (slopeLength//2)
         j += 1
+    baselinePointR = idxRight - (slopeLength//2)
     
     # Use the actual baseline points for slope calculation
     idxL = baselinePointL
