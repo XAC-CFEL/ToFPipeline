@@ -36,6 +36,8 @@ flowchart LR
     D --> F[Fitter\n.pol]
     B --> G[Plotter\npolar heatmap]
     D --> G
+    E -.-> F
+    E -.-> G
 ```
 
 Every class inherits from `Configurable`, which pulls its default parameters from a

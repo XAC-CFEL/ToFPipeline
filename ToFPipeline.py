@@ -278,7 +278,7 @@ class FLASHLoader(Loader):
     def defaultPreprocessing(self,ToF=None,baselineRegion=None,trainStart=None,trainStop=None):
         ToF = ToF or self.config.get("ToF", [0])
         self.data = self.data.sel(detector=ToF)
-        baselineRegion = baselineRegion or self.config.get("baselineRegion",[-200,None])
+        baselineRegion = baselineRegion or self.config.get("baselineRegion",[0,10])
         self.data = -(self.data - self.data.isel(sample=slice(baselineRegion[0],baselineRegion[1])).mean(dim="sample"))
         grouped = self.data.groupby("daq_run")
         sliced = xr.concat(
@@ -1041,15 +1041,15 @@ class PeakFinder(Configurable):
         return self
 
     def process(self, threshold=None, peakNo=None, roi=None, distanceFactor=None,
-                widthFraction=None, symmetric=None, minWidth=True,
+                widthFraction=None, symmetric=None, minWidth=False,
                 slopeLength=None, maxSlope=None, slopeStartHeight=None,
                 noiseRegion=None):
         threshold = threshold if threshold is not None else self.config.get("threshold", 0)
-        peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 8)
+        peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 0)
         roi = roi if roi is not None else self.config.get("roi", [None,None])
         distanceFactor = distanceFactor if distanceFactor is not None else self.config.get("distanceFactor", 2)
         widthFraction = widthFraction if widthFraction is not None else self.config.get("widthFraction", 0.5)
-        symmetric = symmetric if symmetric is not None else self.config.get("symmetric", True)
+        symmetric = symmetric if symmetric is not None else self.config.get("symmetric", False)
         slopeLength = slopeLength if slopeLength is not None else self.config.get("slopeLength", False)
         maxSlope = maxSlope if maxSlope is not None else self.config.get("maxSlope", False)
         noiseRegion = noiseRegion if noiseRegion is not None else self.config.get("noiseRegion", None)
@@ -1096,7 +1096,8 @@ class PeakFinder(Configurable):
             input_core_dims=[["sample"], [], []],
             vectorize=True,
             dask="parallelized",
-            output_dtypes=[object]
+            output_dtypes=[object],
+            dask_gufunc_kwargs={"allow_rechunk": True}
         )
 
         noiseFloor_arr = (noiseMax_da - noiseMin_da).values  # shape: (n_detectors,)
@@ -2810,7 +2811,7 @@ def findSymmetricPeakWidth(trace,peak):
         half width at half maximum.
     '''
     peakWidth = 0
-    maxWidth=20
+    maxWidth=50
     while peakWidth < maxWidth and (peak+peakWidth) < len(trace):
         if trace[peak]/2 <= trace[peak+peakWidth]:
             peakWidth +=1
@@ -2840,7 +2841,7 @@ def findAsymmetricPeakWidth(trace,peak):
         width at half maximum right of the peak.
     '''
     peakWidthR = 0
-    maxWidth = 20
+    maxWidth = 50
     while peakWidthR < maxWidth and (peak+peakWidthR) < len(trace):
         if trace[peak]/2 <= trace[peak+peakWidthR]:
             peakWidthR +=1
@@ -2849,18 +2850,18 @@ def findAsymmetricPeakWidth(trace,peak):
             
     peakWidthL = -peakWidthR
     if trace[peak]/2 <= trace[peak+peakWidthL]:
-        for i in range(20):
+        for i in range(maxWidth):
             if trace[peak]/2 <= trace[peak+peakWidthL]:
                 peakWidthL -=1
             else:
                 break
 
     if trace[peak]/2 >= trace[peak+peakWidthL]:
-        for i in range(20):
-            if trace[peak]/2 >= trace[peak+peakWidthL]:
+        for i in range(maxWidth):
+            if trace[peak]/2 > trace[peak+peakWidthL]:
                 peakWidthL +=1
             else:
-                break          
+                break
     return peakWidthL, peakWidthR
 
 def findPeak(trace, widthFactor=2, symmetric = False):
@@ -3049,7 +3050,7 @@ def findPeak_np(trace, widthFactor=2, symmetric=False, maxWidth=20, minWidth=Fal
 
     # For symmetric peaks, just use L and mirror it
     if symmetric:
-        w = widthL
+        w = widthR
         widthL, widthR = -w, w
 
     # Zero out peak region on the working trace (for iterative peak finding)
@@ -3067,7 +3068,7 @@ def findPeak_np(trace, widthFactor=2, symmetric=False, maxWidth=20, minWidth=Fal
 
     return trace, peak, height, widthL, widthR, area, baseL, baseR
 
-def findPeaksInTrace_np(trace, peakNo, cutOff=2, noiseAmp=[0,1], widthFactor=2,widthFraction=0.5, symmetric=True, maxWidth=30, minWidth=False,slopeLength=5, maxSlope=4, slopeStartHeight=None):
+def findPeaksInTrace_np(trace, peakNo, cutOff=2, noiseAmp=[0,1], widthFactor=2,widthFraction=0.5, symmetric=False, maxWidth=30, minWidth=False,slopeLength=5, maxSlope=4, slopeStartHeight=None):
     results = []
 
     originalTrace = trace.copy()  # Keep intact copy for baseline detection
