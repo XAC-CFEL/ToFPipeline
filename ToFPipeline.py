@@ -1983,7 +1983,7 @@ class Calibrate(Configurable):
         self.energyParam = pd.DataFrame(energyParam)
         return self
 
-    def transmission(self, peakNo=None, setBeta=None, setPhi=None, setPlin=None,intMethod="height",Ebind = None):
+    def transmission(self, peakNo=None, setBeta=None, setPhi=None, setPlin=None,intMethod="height",Ebind = None, Ekin = None):
         transmissionParam = []
         
         setBeta = setBeta or self.config.get("setBeta",0)
@@ -1991,6 +1991,7 @@ class Calibrate(Configurable):
         setPlin = setPlin or self.config.get("setPlin",0)
         peakNo = peakNo or self.config.get("Transmission PeakNo",0)
         Ebind = Ebind or self.config.get("Ebind", 0)
+        Ekin = Ekin or self.config.get("Ekin", None)
         if "Photon Energy" in self.results:
             for energy in self.results["Photon Energy"].unique():
                 for ToF in self.results["detector"].unique():
@@ -2000,7 +2001,9 @@ class Calibrate(Configurable):
                     theta = np.deg2rad(selData["Angles"].to_numpy())
                     g = polarization_model(theta, Plin=setPlin, phi=setPhi,beta2=setBeta)
                     transPar = g/trace
-                    transmissionParam.append({"detector": ToF, "Electron Energy": energy-Ebind,"pos": pos, "Transmission Coefficient": transPar[0]})
+                    if Ekin is None:
+                        Ekin = energy - Ebind
+                    transmissionParam.append({"detector": ToF, "Electron Energy": Ekin,"pos": pos, "Transmission Coefficient": transPar[0]})
         else:
             for ToF in self.results["detector"].unique():
                 selData = self.results[(self.results["peakNo"]==peakNo)&(self.results["detector"]==ToF)]
@@ -2009,7 +2012,7 @@ class Calibrate(Configurable):
                 theta = np.deg2rad(selData["Angles"].to_numpy())
                 g = polarization_model(theta, Plin=setPlin, phi=setPhi,beta2=setBeta)
                 transPar = g/trace
-                transmissionParam.append({"detector": ToF, "Electron Energy": -Ebind,"pos": pos, "Transmission Coefficient": transPar[0]})
+                transmissionParam.append({"detector": ToF, "Electron Energy": Ekin,"pos": pos, "Transmission Coefficient": transPar[0]})
             print("Photon Energy column missing")
         self.transmissionParam = pd.DataFrame(transmissionParam)
         return self
@@ -2091,32 +2094,46 @@ class Calibrate(Configurable):
 
 
 class Fitter(Configurable):
-    def __init__(self, results, config=None):
+    def __init__(self, results, config=None, Ebind=None):
         super().__init__(config)
         self.results = results
+        self.Ebind = Ebind if Ebind is not None else self.config.get("Ebind", 0)
         ToFs = self.results["detector"].unique()
-        params = pd.DataFrame(columns=["detector","Photon Energy","Transmission Coefficient"],index=ToFs)
+        params = pd.DataFrame(index=ToFs)
         params["detector"] = ToFs
-        params["Photon Energy"] = self.results["Photon Energy"]
+        if "Photon Energy" in self.results.columns:
+            params["Electron Energy"] = self.results["Photon Energy"] - self.Ebind
         params["Transmission Coefficient"] = [1]*len(ToFs)
         self.params = params
 
 
     def pol(self, transParam=None, peakNo=None, beta=0, setPlin=None, setPhi=None, fitBeta=False, intMethod="height", groupParam=True, plot=True,
-             orientation="N", direction=1, plotError=False, weightByNoise=False, rOff=0.1, angOff=0, shiftAngOff=0, legendPos=None):
+             orientation="N", direction=1, plotError=False, weightByNoise=False, rOff=0.1, angOff=0, shiftAngOff=0, legendPos=None, Ebind=None):
         peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 0)
         transParam = transParam if transParam is not None else self.params
+        Ebind = Ebind if Ebind is not None else self.Ebind
 
         fullTheta = np.linspace(0, 2*np.pi, 16, endpoint=False)
 
-        cols = ["pos","fwhm area","height","detector","Angles","Photon Energy"]
+        # Photon Energy is optional; when present it is converted to Electron Energy
+        # (Photon Energy - Ebind) to match against transParam's "Electron Energy" column.
+        hasPhotonEnergy = "Photon Energy" in self.results.columns
+        hasElectronEnergyCalib = "Electron Energy" in transParam.columns
+        hasPosCalib = "pos" in transParam.columns
+
+        cols = ["pos","fwhm area","height","detector","Angles"]
+        if hasPhotonEnergy:
+            cols.append("Photon Energy")
         if "noise amplitude" in self.results.columns:
             cols.append("noise amplitude")
         area = self.results[ self.results["peakNo"] == peakNo][cols].copy()
-        if groupParam:
+        if hasPhotonEnergy:
+            area["Electron Energy"] = area["Photon Energy"] - Ebind
+
+        if groupParam and hasPhotonEnergy and hasElectronEnergyCalib and hasPosCalib:
             scores = []
-            for pe, calib_group in transParam.groupby("Photon Energy"):
-                calib_group = calib_group[["pos","detector","Transmission Coefficient","Photon Energy"]].copy()
+            for ee, calib_group in transParam.groupby("Electron Energy"):
+                calib_group = calib_group[["pos","detector","Transmission Coefficient","Electron Energy"]].copy()
 
                 calib_group = calib_group.rename(columns={"pos": "calib_pos"})
 
@@ -2134,14 +2151,14 @@ class Fitter(Configurable):
                 if len(diff) == 0:
                     continue
                 score = np.sqrt(np.mean(diff**2))
-                scores.append((pe, score))
+                scores.append((ee, score))
 
             if len(scores) == 0:
                 raise ValueError("No matching calibration sets found.")
-            best_pe = min(scores, key=lambda x: x[1])[0]
+            best_ee = min(scores, key=lambda x: x[1])[0]
 
-            #print(f"Using calibration Photon Energy: {best_pe}")
-            best_calib = transParam[transParam["Photon Energy"] == best_pe][["pos","detector","Transmission Coefficient","Photon Energy"]].copy()
+            #print(f"Using calibration Electron Energy: {best_ee}")
+            best_calib = transParam[transParam["Electron Energy"] == best_ee][["pos","detector","Transmission Coefficient","Electron Energy"]].copy()
             best_calib = best_calib.rename(columns={"pos": "calib_pos"})
 
             calibArea = pd.merge_asof(
@@ -2153,8 +2170,17 @@ class Fitter(Configurable):
                 direction="nearest"
             )
         else:
-            calib = transParam[["pos","detector","Transmission Coefficient","Photon Energy"]].sort_values("pos")
-            calibArea = pd.merge_asof(area, calib, on="pos", by="detector", direction="nearest")
+            calibCols = ["detector","Transmission Coefficient"]
+            if hasPosCalib:
+                calibCols.insert(0, "pos")
+            if hasElectronEnergyCalib:
+                calibCols.append("Electron Energy")
+            calib = transParam[calibCols]
+            if hasPosCalib:
+                calibArea = pd.merge_asof(area.sort_values("pos"), calib.sort_values("pos"), on="pos", by="detector", direction="nearest")
+            else:
+                # No position info to align on (e.g. default identity calibration) - match by detector only
+                calibArea = area.merge(calib, on="detector", how="left")
 
         calibArea = calibArea.sort_values("detector").reset_index(drop=True)
         calibArea["calibValue"] = (calibArea[intMethod] * calibArea["Transmission Coefficient"])

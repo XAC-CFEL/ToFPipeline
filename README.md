@@ -18,7 +18,7 @@ polarization fitting.
 - [`PeakFinder`](#peakfinder)
 - [`PhotonEnergyProcessor`](#photonenergyprocessor)
 - [`Calibrate`](#calibrate)
-- [`Fitter`](#fitter)
+- [`Fitter`](#fitter) 
 - [`Plotter`](#plotter)
 - [Low-level peak-finding functions](#low-level-peak-finding-functions)
 - [Typical workflow](#typical-workflow)
@@ -47,7 +47,7 @@ Any parameter can still be overridden per-call or per-instance.
 ## Requirements
 
 Core dependencies: `numpy`, `pandas`, `xarray`, `dask`, `h5py`, `scipy`, `matplotlib`,
-`pyyaml`, `tqdm`.
+`pyyaml`.
 
 Facility-specific loaders import optional, environment-specific packages lazily
 (only when that loader is actually instantiated):
