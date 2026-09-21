@@ -1983,23 +1983,34 @@ class Calibrate(Configurable):
         self.energyParam = pd.DataFrame(energyParam)
         return self
 
-    def transmission(self, peakNo=None, setBeta=None, setPhi=None, setPlin=None,intMethod="height"):
+    def transmission(self, peakNo=None, setBeta=None, setPhi=None, setPlin=None,intMethod="height",Ebind = None):
         transmissionParam = []
         
         setBeta = setBeta or self.config.get("setBeta",0)
         setPhi = setPhi or self.config.get("setPhi",0)
         setPlin = setPlin or self.config.get("setPlin",0)
         peakNo = peakNo or self.config.get("Transmission PeakNo",0)
-        
-        for energy in self.results["Photon Energy"].unique():
+        Ebind = Ebind or self.config.get("Ebind", 0)
+        if "Photon Energy" in self.results:
+            for energy in self.results["Photon Energy"].unique():
+                for ToF in self.results["detector"].unique():
+                    selData = self.results[(self.results["peakNo"]==peakNo)&(self.results["Photon Energy"]==energy)&(self.results["detector"]==ToF)]
+                    pos = selData["pos"].mean().astype(int)
+                    trace = selData[intMethod].mean()
+                    theta = np.deg2rad(selData["Angles"].to_numpy())
+                    g = polarization_model(theta, Plin=setPlin, phi=setPhi,beta2=setBeta)
+                    transPar = g/trace
+                    transmissionParam.append({"detector": ToF, "Electron Energy": energy-Ebind,"pos": pos, "Transmission Coefficient": transPar[0]})
+        else:
             for ToF in self.results["detector"].unique():
-                selData = self.results[(self.results["peakNo"]==peakNo)&(self.results["Photon Energy"]==energy)&(self.results["detector"]==ToF)]
+                selData = self.results[(self.results["peakNo"]==peakNo)&(self.results["detector"]==ToF)]
                 pos = selData["pos"].mean().astype(int)
                 trace = selData[intMethod].mean()
                 theta = np.deg2rad(selData["Angles"].to_numpy())
                 g = polarization_model(theta, Plin=setPlin, phi=setPhi,beta2=setBeta)
                 transPar = g/trace
-                transmissionParam.append({"detector": ToF, "Photon Energy": energy,"pos": pos, "Transmission Coefficient": transPar[0]})
+                transmissionParam.append({"detector": ToF, "Electron Energy": -Ebind,"pos": pos, "Transmission Coefficient": transPar[0]})
+            print("Photon Energy column missing")
         self.transmissionParam = pd.DataFrame(transmissionParam)
         return self
 
@@ -2012,7 +2023,7 @@ class Calibrate(Configurable):
             if sampleRate is not None:
                 xdata = self.transmissionParam[(self.transmissionParam["detector"]==ToF)]["pos"]
             else:
-                xdata = self.transmissionParam[(self.transmissionParam["detector"]==ToF)]["Photon Energy"]
+                xdata = self.transmissionParam[(self.transmissionParam["detector"]==ToF)]["Electron Energy"]
             ydata = self.transmissionParam[(self.transmissionParam["detector"]==ToF)]["Transmission Coefficient"]
             ax[j].set_title(f"ToF: {ToF}")
             ax[j].grid(True)
@@ -2034,7 +2045,7 @@ class Calibrate(Configurable):
                     a.axvline(t0, color="gray", linewidth=0.8, linestyle="--", zorder=1)
             fig.supxlabel("Time (ns)")
         else:
-            fig.supxlabel("Photon Energy")
+            fig.supxlabel("Electron Energy")
         fig.supylabel("Transmission Coefficient")
         plt.savefig("Transmission.png",dpi=600)
         return self
