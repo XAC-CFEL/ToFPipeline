@@ -99,13 +99,10 @@ Key sections used in [config.yaml](config.yaml):
 | Section                | Purpose                                                                 |
 |-------------------------|--------------------------------------------------------------------------|
 | `FLASHLoader`           | `ToF` detector list, `angles`, train/pulse slicing, `sampleShift`, `baselineRegion` |
-| `DoocspieStream`        | Live-stream detector addresses/angles/shifts (see `addresses.py`)        |
+| `NXSLoader`             | Same as above but for local .nxs files|
 | `PeakFinder`            | `threshold`, `peakNo`, stacking, smoothing, symmetric/width options       |
-| `PhotonEnergyProcessor` | Photon-energy scan range/step, `singleRun` mode                          |
 | `Calibrate`             | `peakNo`, `beta` used for the transmission calibration                   |
-
-`NXSLoader` and `Plotter` read their `ToF`/`angles` from the `NXSLoader` config
-section (`Plotter.CONFIG_KEY = "NXSLoader"`).
+| `DoocspieStream`        | Live-stream detector addresses/angles/shifts (see `addresses.py`)        |
 
 ## Loaders
 
@@ -227,12 +224,10 @@ Plotting (see also [`Plotter`](#plotter) for the polar view):
 
 ## `Calibrate`
 
-`Calibrate(results, config=None)` turns a peak-finding results table (typically from
+`Calibrate(results, config=None, bindingEnergy=None)` turns a peak-finding results table (typically from
 a `PhotonEnergyProcessor` scan) into per-detector calibration curves.
 
-- `madFilter(x, y, thresh=3)` — median-absolute-deviation outlier mask, used to
-  reject bad fit points before curve fitting.
-- `energy(relPos=False, peakNo=None, guess=None, bindingEnergy=0)` — fits
+- `energy(relPos=False, peakNo=None, guess=None)` — fits
   `energyCalibFunc` (`p0 + p1/√(e+p2) + p3/(e+p4)^1.5`) per detector, mapping peak
   sample position → photon (or kinetic, via `bindingEnergy`) energy. Produces
   `self.energyParam` with fit parameters, errors, and the valid position range
@@ -271,7 +266,7 @@ Module-level physics models used throughout `Calibrate`/`Fitter`/`Plotter`:
 
 ## `Plotter`
 
-`Plotter(data, results=None, config=None)` (`CONFIG_KEY = "NXSLoader"`) renders a
+`Plotter(data, results=None, config=None)` renders a
 single train/pulse's multi-detector traces as a polar heatmap (angle = detector
 position, radius = sample/time, color = intensity).
 
@@ -319,10 +314,10 @@ data = loader.load().defaultPreprocessing().data
 
 # 2. Find peaks per (detector, pulse) trace
 pf = PeakFinder(data).stack().normalize().process()
-results = pf.dataframe().results
+results = pf.results
 
 # 3. (Photon-energy scans) build energy/transmission calibration
-# cal = Calibrate(scanResults).energy().transmission()
+ cal = Calibrate(scanResults).energy().transmission()
 
 # 4. Fit the angular (polarization) distribution
 fitter = Fitter(results)
@@ -332,5 +327,4 @@ params, errors = fitter.pol(peakNo=0)
 Plotter(data, results=results).plot()
 ```
 
-See [HowTo.ipynb](../HowTo.ipynb) and [offlineAnalysis.ipynb](../offlineAnalysis.ipynb)
-for end-to-end interactive examples using this module.
+See [HowTo.ipynb](../HowTo.ipynb) for end-to-end interactive examples using this module.
