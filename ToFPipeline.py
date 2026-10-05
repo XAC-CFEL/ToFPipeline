@@ -1805,76 +1805,13 @@ def streamXarray(data):
         #time.sleep(0.01)
         yield group
 
-class PhotonEnergyProcessor(Configurable):
-    def __init__(self, proposal, runNo, loaderClass, config=None):
-        super().__init__(config)
-        self.loaderClass = loaderClass
-        self.proposal = proposal
-        self.runNo = runNo
-        self.data = None
-        self.photonEnergies = None
-        self.firstTrainId = int
-        self.results = []
-        self.run = self.loaderClass(self.proposal, self.runNo)
-        self.pf = PeakFinder(self.data,config=self.config)
-
-
-    def getRunEnergies(self,singleRun=None, energyStart=None, energyStop=None, energyStep=None):
-        singleRun = singleRun if singleRun is not None else self.config.get("singleRun", True)
-        energyStart = energyStart if energyStart is not None else self.config.get("energyStart", 0)
-        energyStop = energyStop if energyStop is not None else self.config.get("energyStop", None)
-        energyStep = energyStep if energyStep is not None else self.config.get("energyStep", 1)
-        if singleRun:
-            self.run.load(key="Photon Energy",trainStart=None, trainStop=None, trainStep=None, pulseStart=None, pulseStop=None, pulseStep=None)
-            self.firstTrainId = self.run.photonEnergy.trainId[0]
-            self.photonEnergies = self.run.photonEnergy.groupby("Photon Energy",as_index=False).last()
-        else:
-            self.run = self.loaderClass(self.proposal, self.runNo,config=self.config)
-            self.run.load(key="Photon Energy",trainStart=None, trainStop=None, trainStep=None, pulseStart=None, pulseStop=None, pulseStep=None)
-            self.photonEnergies = self.run.photonEnergy#.groupby("Photon Energy",as_index=False))
-            #self.photonEnergies["daq_run"] = self.photonEnergies["daq_run"].astype(int)
-            #self.photonEnergies["trainId"] = self.photonEnergies["trainId"].astype(int)
-        return self
-
-        trainStart = trainStart or self.config.get("trainStart", None)
-        trainStop = trainStop or self.config.get("trainStop", None)
-        trainStep = trainStep or self.config.get("trainStep", None)
-        pulseStart = pulseStart or self.config.get("pulseStart", None)
-        pulseStop = pulseStop or self.config.get("pulseStop", None)
-        pulseStop = pulseStep or self.config.get("pulseStep", None)
-    
-    def processEnergies(self, energyStart=None, energyStop=None, energyStep=None, trainSliceStop=None, singleRun=None, peakFinderConfig=None):
-        energyStart = energyStart if energyStart is not None else self.config.get("energyStart", 0)
-        energyStop = energyStop if energyStop is not None else self.config.get("energyStop", None)
-        energyStep = energyStep if energyStep is not None else self.config.get("energyStep", 1)
-        singleRun = singleRun if singleRun is not None else self.config.get("singleRun", True)
-
-        #loaderConfig = loaderConfig or self.config.get("loaderConfig", {})
-        #peakFinderConfig = peakFinderConfig or self.config.get("PeakFinder", {})
-        #print("Start processing...")
-        if energyStop == None:
-            energyStop = len(self.photonEnergies)-1
-
-        peakChunks = []
-        for i in tqdm(np.arange(energyStart, energyStop, energyStep),desc="Processing trains",position=0):
-            if singleRun:
-                trainStart = self.photonEnergies.trainId[i] - self.firstTrainId
-                trainSliceStop = self.run.config.get("trainStep",1)
-                self.data = self.run.load(trainStart = trainStart, trainStop = int(trainStart+trainSliceStop)).defaultPreprocessing().data
-            else:
-                self.run = self.loaderClass(self.proposal, self.runNo[0], config=self.config)
-                self.data = self.run.load().defaultPreprocessing().data
-            peakChunk = PeakFinder(self.data,config=self.config).stack().normalize().process().dataframe().results
-            AuxFunc(peakChunk).addData(self.run.photonEnergy)
-            peakChunks.append(peakChunk)
-        self.results = pd.concat(peakChunks)
-        print("Done!")
-        return self.results
 
 class Calibrate(Configurable):
-    def __init__(self, results, config=None):
+    def __init__(self, results, config=None, bindingEnergy=None):
         super().__init__(config)
         self.results = results
+        self.Ebind = bindingEnergy or self.config.get("Ebind", 0)
+        self.results["Photon Energy"] = self.results["Photon Energy"] - self.Ebind
         self.energyParam = []
         self.transmissionParam = []
 
@@ -1891,7 +1828,7 @@ class Calibrate(Configurable):
         return np.abs(z) <= thresh
 
         
-    def energy(self,relPos=False,peakNo=None,guess=None, bindingEnergy=0):
+    def energy(self,relPos=False,peakNo=None,guess=None):
         peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 0)
         guess = (guess or self.config.get("initial guess", None))  # Will be computed from data if None
         avgPos = self.results.groupby(["detector","peakNo","Photon Energy"])["pos"].mean().reset_index()
@@ -1906,7 +1843,7 @@ class Calibrate(Configurable):
             if len(energy)<3:
                 continue
             xdata = pos.values
-            ydata = energy.values - bindingEnergy
+            ydata = energy.values
             goodData = self.madFilter(xdata,ydata)
             
             # Use provided guess or compute data-driven initial guesses
@@ -1983,14 +1920,13 @@ class Calibrate(Configurable):
         self.energyParam = pd.DataFrame(energyParam)
         return self
 
-    def transmission(self, peakNo=None, setBeta=None, setPhi=None, setPlin=None,intMethod="height",Ebind = None, Ekin = None):
+    def transmission(self, peakNo=None, setBeta=None, setPhi=None, setPlin=None,intMethod="height", Ekin = None):
         transmissionParam = []
         
         setBeta = setBeta or self.config.get("setBeta",0)
         setPhi = setPhi or self.config.get("setPhi",0)
         setPlin = setPlin or self.config.get("setPlin",0)
         peakNo = peakNo or self.config.get("Transmission PeakNo",0)
-        Ebind = Ebind or self.config.get("Ebind", 0)
         Ekin = Ekin or self.config.get("Ekin", None)
         if "Photon Energy" in self.results:
             for energy in self.results["Photon Energy"].unique():
@@ -2002,7 +1938,7 @@ class Calibrate(Configurable):
                     g = polarization_model(theta, Plin=setPlin, phi=setPhi,beta2=setBeta)
                     transPar = g/trace
                     if Ekin is None:
-                        Ekin = energy - Ebind
+                        Ekin = energy - self.Ebind
                     transmissionParam.append({"detector": ToF, "Electron Energy": Ekin,"pos": pos, "Transmission Coefficient": transPar[0]})
         else:
             for ToF in self.results["detector"].unique():
@@ -2012,6 +1948,8 @@ class Calibrate(Configurable):
                 theta = np.deg2rad(selData["Angles"].to_numpy())
                 g = polarization_model(theta, Plin=setPlin, phi=setPhi,beta2=setBeta)
                 transPar = g/trace
+                if Ekin is None:
+                    Ekin = - self.Ebind
                 transmissionParam.append({"detector": ToF, "Electron Energy": Ekin,"pos": pos, "Transmission Coefficient": transPar[0]})
             print("Photon Energy column missing")
         self.transmissionParam = pd.DataFrame(transmissionParam)
