@@ -175,6 +175,30 @@ containing per-channel histograms (`scan/instrument/histogram_chNN/data` and
   per run, and applies `sampleShift()`.
 - Internal helpers: `_getFilePath`, `_extractRunNumber`, `_loadSingleFile`.
 
+### `FlashH5Loader`
+
+Loader for FLASH DAQ HDF5 files in the "indexed" format (e.g.
+`FLASH2_USER2_stream_2_run52190_file2_20240301T163103.1.h5`), read directly with h5py.
+Each ADC channel (`adcPath`, default `uncategorised/FLASH.FEL/ADC.ADQ/GHZADC1.CHnn`) holds one
+trace per train in `value` with the train IDs in `index`; the run number comes from the
+file name.
+
+- `FlashH5Loader.scan(paths)` — cheap overview (one row per file: run, file number,
+  creation time, channels, train count / trainId range, samples per train, wavelength).
+- `FlashH5Loader(files, config=None).load(trainStart=None, trainStop=None, trainStep=None, channels=None, key="all", photonEnergy=None)`
+  — lazily opens the files and cuts every train trace into `nPulses` windows of
+  `pulseWindow` samples starting at `round(pulseOffset + k * pulsePeriod)` (`pulsePeriod`
+  may be a float). Windows that do not fit are dropped. `self.data` has the usual
+  `(detector, pulse, sample)` layout with a `(trainId, pulseId)` MultiIndex and `daq_run`;
+  the unsplit traces are in `self.trainTraces`, the start samples in `self.pulseStarts`.
+  `self.pulseEnergy` comes from the pulse-resolved GMD (`gmdPath`, aligned by train ID,
+  bunch `pulseId + gmdPulseOffset`), `self.photonEnergy` from the wavelength channel
+  (1239.84 / λ[nm]) unless overridden per run via `photonEnergy={run: eV}`.
+- `defaultPreprocessing(ToF=None, baselineRegion=None, invert=None)` — selects detectors,
+  subtracts the mean baseline region, inverts the negative-going signal and applies
+  `sampleShift()`.
+- `close()` releases the file handles.
+
 ## `PeakFinder`
 
 `PeakFinder(data, config=None)` operates on the `xarray.DataArray` produced by a
@@ -240,6 +264,13 @@ a `PhotonEnergyProcessor` scan) into per-detector calibration curves.
   correct for detector-to-detector efficiency/solid-angle differences.
 - `plotTransmission(...)` / `plotEnergy(...)` — diagnostic plots of the fitted
   transmission coefficients and the energy-calibration curves per detector.
+- `saveCalibration(path, energyParam=None, transmissionParam=None, meta=None)` /
+  `loadCalibration(path)` (module functions) — store and restore `energyParam` /
+  `transmissionParam` as JSON together with provenance metadata.
+
+Plot functions (`PeakFinder.plotSingle`, `Calibrate.plotEnergy`/`plotTransmission`,
+`Fitter.pol`, `Plotter.plot`) accept `savename=` (`False` skips writing the PNG; `plotSingle`
+uses `save=False`) and, where they call `plt.show()`, `show=`. The figure is kept in `.fig`.
 
 ## `Fitter`
 

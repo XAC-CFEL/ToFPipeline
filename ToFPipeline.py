@@ -688,6 +688,292 @@ class NXSLoader(Loader):
         self.sampleShift()
         return self
     
+class FlashH5Loader(Loader):
+    """
+    Loader for FLASH DAQ HDF5 files ("indexed" format, e.g. ``FLASH2_USER2_stream_2_run52190_file2_*.h5``).
+
+    Every ADC channel stores one trace per train (``value``, shape ``(nTrains, nSamplesTrain)``) with the
+    train IDs in the sibling ``index`` dataset. The run number is only encoded in the file name.
+    There is no pulse ID in the file: each train trace is cut into ``nPulses`` windows of
+    ``pulseWindow`` samples starting at ``round(pulseOffset + k * pulsePeriod)``. ``pulsePeriod`` may be
+    a float since the pulse spacing is not an integer number of samples.
+
+    The result follows the common loader layout: ``self.data`` is a lazy ``DataArray`` with dims
+    ``(detector, pulse, sample)``, a ``(trainId, pulseId)`` MultiIndex on ``pulse`` and a ``daq_run``
+    coordinate. The unsplit train traces are kept in ``self.trainTraces`` (dims ``detector, train, sample``).
+    """
+
+    RUN_PATTERN = re.compile(r"run(\d+)")
+    FILE_PATTERN = re.compile(r"file(\d+)")
+
+    def __init__(self, files, config=None):
+        super().__init__(config)
+        if isinstance(files, (str, Path)):
+            files = [files]
+        self.files = [Path(f) for f in files]
+        self.data = None
+        self.trainTraces = None
+        self.pulseStarts = None
+        self.photonEnergy = None
+        self.pulseEnergy = None
+        self._handles = []
+
+        fullTheta = np.array(self.config.get("angles", np.linspace(0, 360, 16, endpoint=False)))
+        detectors = self.config.get("ToF", list(range(16)))
+        theta = fullTheta if len(fullTheta) == len(detectors) else fullTheta[detectors]
+        self.angles = pd.DataFrame(detectors, columns=["detector"])
+        self.angles["Angles"] = theta
+
+    @classmethod
+    def runNumber(cls, filePath):
+        match = cls.RUN_PATTERN.search(Path(filePath).name)
+        return int(match.group(1)) if match else None
+
+    @classmethod
+    def scan(cls, paths, config=None):
+        """
+        Cheap overview of FLASH HDF5 files: only train indices and attributes are read.
+
+        Parameters
+        ----------
+        paths : path, folder or list of paths
+            A folder is globbed for ``*.h5``.
+
+        Returns
+        -------
+        pandas.DataFrame with one row per file: file, run, fileNo, created, channels, nTrains,
+        trainId min, trainId max, nSamples, wavelength.
+        """
+        cfg = GlobalConfig.get_for_class(cls.__name__)
+        cfg.update(config or {})
+        adcPath = cfg.get("adcPath", "uncategorised/FLASH.FEL/ADC.ADQ/GHZADC1.CH{ch:02d}")
+        wavelengthPath = cfg.get("wavelengthPath", "uncategorised/FLASH.FEL/FL2.WAVELENGTHCONTROL/FLASH2.COLOR1/WAVELENGTH")
+        nChannels = cfg.get("nChannels", 16)
+
+        if isinstance(paths, (str, Path)) and Path(paths).is_dir():
+            paths = sorted(Path(paths).glob("*.h5"))
+        elif isinstance(paths, (str, Path)):
+            paths = [paths]
+
+        rows = []
+        for path in paths:
+            path = Path(path)
+            fileMatch = cls.FILE_PATTERN.search(path.name)
+            row = {"file": str(path), "run": cls.runNumber(path),
+                   "fileNo": int(fileMatch.group(1)) if fileMatch else None}
+            try:
+                with h5py.File(path, "r") as f:
+                    created = f.attrs.get("Created", "")
+                    row["created"] = created.decode() if isinstance(created, bytes) else str(created)
+                    channels = [ch for ch in range(nChannels) if f"{adcPath.format(ch=ch)}/value" in f]
+                    row["channels"] = channels
+                    if channels:
+                        index = f[f"{adcPath.format(ch=channels[0])}/index"][:]
+                        row["nTrains"] = len(index)
+                        row["trainId min"] = int(index.min()) if len(index) else None
+                        row["trainId max"] = int(index.max()) if len(index) else None
+                        row["nSamples"] = f[f"{adcPath.format(ch=channels[0])}/value"].shape[-1]
+                    if f"{wavelengthPath}/value" in f:
+                        wl = f[f"{wavelengthPath}/value"][:]
+                        row["wavelength"] = float(np.nanmedian(wl)) if len(wl) else np.nan
+            except OSError as e:
+                row["error"] = str(e)
+            rows.append(row)
+        return pd.DataFrame(rows)
+
+    def close(self):
+        for f in self._handles:
+            try:
+                f.close()
+            except Exception:
+                pass
+        self._handles = []
+
+    def pulseStartIndices(self, nSamplesTrain=None, pulseOffset=None, pulsePeriod=None, nPulses=None, pulseWindow=None):
+        """
+        Start sample of every pulse window: ``round(pulseOffset + k * pulsePeriod)``.
+        Windows that do not fit into the train trace are dropped.
+
+        Returns
+        -------
+        (pulseIds, starts) : two int arrays
+        """
+        nSamplesTrain = int(nSamplesTrain if nSamplesTrain is not None else self.config.get("nSamples", 16000))
+        pulseOffset = float(pulseOffset if pulseOffset is not None else self.config.get("pulseOffset", 0.0))
+        pulsePeriod = float(pulsePeriod if pulsePeriod is not None else self.config.get("pulsePeriod", 0.0))
+        nPulses = int(nPulses if nPulses is not None else self.config.get("nPulses", 1))
+        pulseWindow = int(pulseWindow if pulseWindow is not None else self.config.get("pulseWindow", nSamplesTrain))
+
+        starts = np.round(pulseOffset + np.arange(nPulses) * pulsePeriod).astype(np.int64)
+        valid = (starts >= 0) & (starts + pulseWindow <= nSamplesTrain)
+        if not valid.all():
+            print(f"Warning: pulses {np.arange(nPulses)[~valid].tolist()} do not fit into the "
+                  f"{nSamplesTrain}-sample trace and are dropped")
+        return np.arange(nPulses)[valid], starts[valid]
+
+    def load(self, trainStart=None, trainStop=None, trainStep=None, channels=None, key="all",
+             photonEnergy=None):
+        """
+        Open the files lazily and cut the train traces into pulses.
+
+        Parameters
+        ----------
+        trainStart, trainStop, trainStep : int, optional
+            Positional train slice applied to each file.
+        channels : list of int, optional
+            ADC channels to load. Defaults to all channels present.
+        key : {"all", "GMD", "Photon Energy", None}
+            Which auxiliary data to load.
+        photonEnergy : dict {run: eV}, optional
+            Override the photon energy derived from the wavelength channel.
+            Falls back to the ``photonEnergyOverride`` key in the config.
+
+        Returns
+        -------
+        self
+        """
+        trainStart = trainStart if trainStart is not None else self.config.get("trainStart", None)
+        trainStop = trainStop if trainStop is not None else self.config.get("trainStop", None)
+        trainStep = trainStep if trainStep is not None else self.config.get("trainStep", None)
+        photonEnergy = photonEnergy if photonEnergy is not None else (self.config.get("photonEnergyOverride", None) or {})
+        adcPath = self.config.get("adcPath", "uncategorised/FLASH.FEL/ADC.ADQ/GHZADC1.CH{ch:02d}")
+        trainSlice = slice(trainStart, trainStop, trainStep)
+
+        self.close()
+        perFile = []
+        for path in self.files:
+            f = h5py.File(path, "r")
+            self._handles.append(f)
+            present = [ch for ch in range(self.config.get("nChannels", 16)) if f"{adcPath.format(ch=ch)}/value" in f]
+            fileChannels = present if channels is None else [ch for ch in channels if ch in present]
+            if not fileChannels:
+                print(f"Warning: no ADC channels found in {path.name}")
+                continue
+            # Channels may in principle be written for different trains: keep the common ones
+            indices = [f[f"{adcPath.format(ch=ch)}/index"][:] for ch in fileChannels]
+            common = indices[0]
+            for idx in indices[1:]:
+                common = np.intersect1d(common, idx)
+            common = np.sort(common)[trainSlice]
+            arrays = []
+            for ch, idx in zip(fileChannels, indices):
+                dset = f[f"{adcPath.format(ch=ch)}/value"]
+                rowChunk = dset.chunks[0] if dset.chunks else 32
+                arr = da.from_array(dset, chunks=(rowChunk, dset.shape[1]), lock=True)
+                if np.array_equal(np.sort(idx)[trainSlice], common) and np.all(np.diff(idx) > 0):
+                    arr = arr[trainSlice]
+                else:
+                    order = np.argsort(idx)
+                    arr = arr[order[np.searchsorted(idx, common, sorter=order)]]
+                arrays.append(arr)
+            perFile.append({"run": self.runNumber(path), "channels": fileChannels, "trainIds": common,
+                            "data": da.stack(arrays, axis=0), "file": path})
+
+        if not perFile:
+            raise ValueError("No data could be loaded")
+        detectors = perFile[0]["channels"]
+        for entry in perFile[1:]:
+            if entry["channels"] != detectors:
+                raise ValueError(f"Channel mismatch between files: {detectors} vs {entry['channels']}")
+
+        trainIds = np.concatenate([e["trainIds"] for e in perFile]).astype(np.int64)
+        runs = np.concatenate([np.full(len(e["trainIds"]), e["run"] or 0, dtype=np.int64) for e in perFile])
+        raw = da.concatenate([e["data"] for e in perFile], axis=1)  # (detector, train, nSamplesTrain)
+        nSamplesTrain = raw.shape[-1]
+
+        self.trainTraces = xr.DataArray(
+            raw, dims=["detector", "train", "sample"],
+            coords={"detector": np.asarray(detectors, dtype=np.int64), "trainId": ("train", trainIds),
+                    "daq_run": ("train", runs), "sample": np.arange(nSamplesTrain, dtype=np.int64)},
+            name="trainTraces")
+
+        pulseIds, starts = self.pulseStartIndices(nSamplesTrain)
+        if len(starts) == 0:
+            raise ValueError("No pulse window fits into the trace; check pulseOffset/pulsePeriod/pulseWindow")
+        pulseWindow = int(self.config.get("pulseWindow", nSamplesTrain))
+        self.pulseStarts = pd.Series(starts, index=pulseIds, name="start sample")
+
+        windows = da.stack([raw[..., s:s + pulseWindow] for s in starts], axis=2)  # (det, train, pulse, W)
+        nDet, nTrains, nPul, _ = windows.shape
+        # Keep pulse and sample axes whole per chunk; otherwise reshape splits the sample axis
+        windows = windows.rechunk({0: 1, 1: raw.chunksize[1], 2: -1, 3: -1})
+        windows = windows.reshape(nDet, nTrains * nPul, pulseWindow)
+
+        pulseIndex = pd.MultiIndex.from_arrays(
+            [np.repeat(trainIds, nPul), np.tile(pulseIds, nTrains)], names=["trainId", "pulseId"])
+        self.data = xr.DataArray(
+            windows, dims=["detector", "pulse", "sample"],
+            coords={"detector": np.asarray(detectors, dtype=np.int64),
+                    "sample": np.arange(pulseWindow, dtype=np.int64)},
+            name="adc")
+        self.data = self.data.assign_coords(xr.Coordinates.from_pandas_multiindex(pulseIndex, "pulse"))
+        self.data = self.data.assign_coords(daq_run=("pulse", np.repeat(runs, nPul)))
+
+        if key in ("all", "GMD"):
+            self.pulseEnergy = self._loadGMD(trainIds, pulseIds)
+        if key in ("all", "Photon Energy"):
+            self.photonEnergy = self._loadPhotonEnergy(trainIds, runs, photonEnergy)
+        return self
+
+    def _loadGMD(self, trainIds, pulseIds):
+        gmdPath = self.config.get("gmdPath", "FL2/Photon Diagnostic/GMD/Pulse resolved energy/energy hall")
+        gmdQuantity = int(self.config.get("gmdQuantity", 0))  # 0 = INTENSITY.TD
+        gmdPulseOffset = int(self.config.get("gmdPulseOffset", 0))
+        frames = []
+        for f in self._handles:
+            if f"{gmdPath}/value" not in f:
+                continue
+            index = f[f"{gmdPath}/index"][:].astype(np.int64)
+            values = f[f"{gmdPath}/value"][:, gmdQuantity, :]
+            cols = pulseIds + gmdPulseOffset
+            keep = (cols >= 0) & (cols < values.shape[-1])
+            frames.append(pd.DataFrame(values[:, cols[keep]], index=index, columns=pulseIds[keep]))
+        if not frames:
+            print("Warning: no GMD data found")
+            return None
+        gmd = pd.concat(frames)
+        gmd = gmd[~gmd.index.duplicated()].reindex(trainIds)  # align by train ID, never by row
+        gmd.index.name = "trainId"
+        gmd.columns.name = "pulseId"
+        return gmd.stack(future_stack=True).rename("Pulse Energy").reset_index()
+
+    def _loadPhotonEnergy(self, trainIds, runs, override):
+        wavelengthPath = self.config.get("wavelengthPath", "uncategorised/FLASH.FEL/FL2.WAVELENGTHCONTROL/FLASH2.COLOR1/WAVELENGTH")
+        frames = []
+        for f in self._handles:
+            if f"{wavelengthPath}/value" in f:
+                frames.append(pd.DataFrame({"trainId": f[f"{wavelengthPath}/index"][:].astype(np.int64),
+                                            "wavelength": f[f"{wavelengthPath}/value"][:].astype(float)}))
+        trains = pd.DataFrame({"trainId": trainIds, "daq_run": runs}).sort_values("trainId")
+        if frames:
+            wl = pd.concat(frames).drop_duplicates("trainId").sort_values("trainId")
+            trains = pd.merge_asof(trains, wl, on="trainId", direction="nearest")
+            trains["Photon Energy"] = 1239.84198 / trains["wavelength"]  # hc in eV nm
+            trains = trains.drop(columns="wavelength")
+        else:
+            trains["Photon Energy"] = np.nan
+        for run, energy in (override or {}).items():
+            trains.loc[trains["daq_run"] == int(run), "Photon Energy"] = float(energy)
+        return trains[["trainId", "daq_run", "Photon Energy"]].reset_index(drop=True)
+
+    def defaultPreprocessing(self, ToF=None, baselineRegion=None, invert=None):
+        """
+        Select detectors, subtract the mean of ``baselineRegion``, invert the (negative-going)
+        signal and apply the per-detector ``sampleShift`` from the config.
+        """
+        ToF = ToF if ToF is not None else self.config.get("ToF", list(self.data.detector.values))
+        ToF = [d for d in ToF if d in self.data.detector.values]
+        self.data = self.data.sel(detector=ToF)
+        baselineRegion = baselineRegion if baselineRegion is not None else self.config.get("baselineRegion", [0, 10])
+        invert = invert if invert is not None else self.config.get("invert", True)
+        data = self.data.astype(np.float32)
+        data = data - data.isel(sample=slice(baselineRegion[0], baselineRegion[1])).mean(dim="sample")
+        self.data = -data if invert else data
+        self.sampleShift()
+        # Per-detector shifts leave misaligned sample chunks; merging them keeps later steps fast
+        self.data = self.data.chunk({"sample": -1})
+        return self
+
 class PeakFinder(Configurable):
     def __init__(self, data, config=None):
         super().__init__(config)
@@ -1299,12 +1585,13 @@ class PeakFinder(Configurable):
         fig.supylabel("Intensity")
         if savename is not False:
             plt.savefig(f"{savename}.png",dpi=600)
+        self.fig = fig
         return self
     
     def plotSingle(self, trainIndex=None, pulseIndex=None, ToF=0,
                    xmin=None, xmax=None, ymin=None, ymax=None,
                    figsize=(8, 6), savename=False,widthFraction=0.5, logScale=False, showGaussianFit=False,
-                   energyCalib=None, eTickNum=6, sampleRate=None, t0=0):
+                   energyCalib=None, eTickNum=6, sampleRate=None, t0=0, save=True):
 
         train_ids = self.data.indexes["pulse"].get_level_values("trainId")
         pulse_ids = self.data.indexes["pulse"].get_level_values("pulseId")
@@ -1351,6 +1638,7 @@ class PeakFinder(Configurable):
             ax.legend()
             if savename is not False:
                 plt.savefig(f"{savename}.png", dpi=600)
+            self.fig = fig
             return self
             
         for peakNo in self.results["peakNo"].unique():
@@ -1497,7 +1785,10 @@ class PeakFinder(Configurable):
                 ax.axvline(t0, color="gray", linewidth=0.8, linestyle="--", zorder=1)
 
         ax.legend()
-        plt.savefig("traces.png", dpi=600)
+        # save=False skips writing; savename overrides the default "traces" file name
+        if save:
+            plt.savefig(f"{savename}.png" if savename else "traces.png", dpi=600)
+        self.fig = fig
         return self
 
 
@@ -1955,7 +2246,7 @@ class Calibrate(Configurable):
         self.transmissionParam = pd.DataFrame(transmissionParam)
         return self
 
-    def plotTransmission(self, ymin=None, ymax=None, sampleRate=None, eTickNum=6, t0=0):
+    def plotTransmission(self, ymin=None, ymax=None, sampleRate=None, eTickNum=6, t0=0, savename="Transmission"):
         plotYNum = int(np.ceil(self.results["detector"].nunique()/4))
         fig, ax = plt.subplots(plotYNum,4,figsize=(8, 2*plotYNum),sharex='all', sharey='all')
         ax = ax.flatten()
@@ -1988,11 +2279,14 @@ class Calibrate(Configurable):
         else:
             fig.supxlabel("Electron Energy")
         fig.supylabel("Transmission Coefficient")
-        plt.savefig("Transmission.png",dpi=600)
+        if savename:
+            plt.savefig(f"{savename}.png",dpi=600)
+        self.fig = fig
         return self
                 
 
-    def plotEnergy(self, peakNo = None, plotReg = True, relPos=False, ymin=None, ymax=None, xmin=None, xmax=None, bindingEnergy=0):
+    def plotEnergy(self, peakNo = None, plotReg = True, relPos=False, ymin=None, ymax=None, xmin=None, xmax=None, bindingEnergy=0,
+                   savename="Energy", show=True):
         peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 0)
         plotYNum = int(np.ceil(self.results["detector"].nunique()/4))
         fig, ax = plt.subplots(plotYNum,4,figsize=(8, 2*plotYNum),sharex='all', sharey='all')
@@ -2026,9 +2320,70 @@ class Calibrate(Configurable):
             j+=1
         fig.supxlabel("Sample")
         fig.supylabel("Kinetic Energy")
-        plt.savefig("Energy.png",dpi=600)
-        plt.show()
+        if savename:
+            plt.savefig(f"{savename}.png",dpi=600)
+        self.fig = fig
+        if show:
+            plt.show()
         return self
+
+
+CALIBRATION_VERSION = 1
+
+def saveCalibration(path, energyParam=None, transmissionParam=None, meta=None):
+    """
+    Write energy and/or transmission calibration tables to a JSON file.
+
+    Parameters
+    ----------
+    path : str or Path
+    energyParam : pandas.DataFrame, optional
+        ``Calibrate.energyParam`` (detector, peakNo, p0..p4, errors, pos_min, pos_max).
+    transmissionParam : pandas.DataFrame, optional
+        ``Calibrate.transmissionParam`` (detector, Electron Energy, pos, Transmission Coefficient).
+    meta : dict, optional
+        Free-form provenance (runs, bindingEnergy, peakNo, sampleRate, t0, source files, ...).
+    """
+    import json, datetime
+
+    def _records(df):
+        if df is None or (isinstance(df, list) and not df) or len(df) == 0:
+            return None
+        df = pd.DataFrame(df)
+        # NaN is not valid JSON: store as null
+        return json.loads(df.to_json(orient="records"))
+
+    content = {
+        "version": CALIBRATION_VERSION,
+        "created": datetime.datetime.now().isoformat(timespec="seconds"),
+        "meta": meta or {},
+        "energy": _records(energyParam),
+        "transmission": _records(transmissionParam),
+    }
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(content, f, indent=2, default=lambda o: o.item() if hasattr(o, "item") else str(o))
+    return Path(path)
+
+def loadCalibration(path):
+    """
+    Read a calibration JSON written by ``saveCalibration``.
+
+    Returns
+    -------
+    dict with keys ``energy`` and ``transmission`` (DataFrames or None), ``meta``, ``created``, ``version``.
+    """
+    import json
+    with open(path, "r", encoding="utf-8") as f:
+        content = json.load(f)
+    out = dict(content)
+    for key in ("energy", "transmission"):
+        records = content.get(key)
+        out[key] = pd.DataFrame.from_records(records).astype(float, errors="ignore") if records else None
+        if out[key] is not None:
+            for col in ("detector", "peakNo"):
+                if col in out[key]:
+                    out[key][col] = out[key][col].astype(int)
+    return out
 
 
 class Fitter(Configurable):
@@ -2046,7 +2401,8 @@ class Fitter(Configurable):
 
 
     def pol(self, transParam=None, peakNo=None, beta=0, setPlin=None, setPhi=None, fitBeta=False, intMethod="height", groupParam=True, plot=True,
-             orientation="N", direction=1, plotError=False, weightByNoise=False, rOff=0.1, angOff=0, shiftAngOff=0, legendPos=None, Ebind=None):
+             orientation="N", direction=1, plotError=False, weightByNoise=False, rOff=0.1, angOff=0, shiftAngOff=0, legendPos=None, Ebind=None,
+             savename="pol", show=True, ax=None):
         peakNo = peakNo if peakNo is not None else self.config.get("peakNo", 0)
         transParam = transParam if transParam is not None else self.params
         Ebind = Ebind if Ebind is not None else self.Ebind
@@ -2288,7 +2644,10 @@ class Fitter(Configurable):
             _prev_preamble = plt.rcParams.get("text.latex.preamble", "")
             if r"\usepackage{siunitx}" not in _prev_preamble:
                 plt.rcParams["text.latex.preamble"] = _prev_preamble + r"\usepackage{siunitx}"
-            fig, ax = plt.subplots(figsize=(6,4), subplot_kw={'projection': 'polar'})
+            if ax is None:
+                fig, ax = plt.subplots(figsize=(6,4), subplot_kw={'projection': 'polar'})
+            else:
+                fig = ax.figure
             if Plin_fit > 0.015:
                 ax.plot([phi_rad_fit, phi_rad_fit], [0, maxTrace], color="orange")
                 ax.plot([phi_rad_fit + np.pi, phi_rad_fit + np.pi], [0, maxTrace], color="orange")
@@ -2348,8 +2707,11 @@ class Fitter(Configurable):
                     return np.min(np.abs(((angles - center + 180) % 360) - 180))
                 _legend_loc = max(_legend_candidates, key=lambda loc: _min_ang_dist(_legend_candidates[loc], _theta_deg))
                 ax.legend(loc=_legend_loc)
-            plt.savefig("pol.png", dpi=600)
-            plt.show()
+            if savename:
+                fig.savefig(f"{savename}.png", dpi=600)
+            self.fig = fig
+            if show:
+                plt.show()
             plt.rcParams["text.latex.preamble"] = _prev_preamble
             
         return fit_params, errors
@@ -2487,6 +2849,8 @@ class Plotter(Configurable):
         orientation = "E",
         sampleRate=None,
         t0=0,
+        savename="polHeat",
+        show=True,
     ):
         """
         Plot data in polar coordinates.
@@ -2663,7 +3027,7 @@ class Plotter(Configurable):
 
         # Colourbar
         if ownFig:
-            plt.colorbar(mesh, ax=ax, label=cbarLabel, shrink=0.7, pad=0.1)
+            ax.figure.colorbar(mesh, ax=ax, label=cbarLabel, shrink=0.7, pad=0.1)
 
         # ------------------------------------------------------------------
         # Overlay polarization model
@@ -2760,10 +3124,13 @@ class Plotter(Configurable):
         plotTitle = title
 
         ax.set_title(plotTitle, pad=15)
-        plt.savefig("polHeat.png",dpi=600)
+        if savename:
+            ax.figure.savefig(f"{savename}.png",dpi=600)
+        self.fig = ax.figure
         if ownFig:
             plt.tight_layout()
-            plt.show()
+            if show:
+                plt.show()
         
         return self
 

@@ -25,6 +25,42 @@ FLASHLoader:
         14:      9
         15:     10
 
+FlashH5Loader:
+    # FLASH DAQ HDF5 files (e.g. FLASH2_USER2_stream_2_run52190_file2_*.h5)
+    adcPath: "uncategorised/FLASH.FEL/ADC.ADQ/GHZADC1.CH{ch:02d}"
+    nChannels: 16
+    gmdPath: "FL2/Photon Diagnostic/GMD/Pulse resolved energy/energy hall"
+    gmdQuantity: 0          # 0 = INTENSITY.TD
+    gmdPulseOffset: 0       # GMD bunch index of pulseId 0
+    wavelengthPath: "uncategorised/FLASH.FEL/FL2.WAVELENGTHCONTROL/FLASH2.COLOR1/WAVELENGTH"
+    sampleRate: 1.8e9
+    # Pulse split: start_k = round(pulseOffset + k * pulsePeriod), window of pulseWindow samples
+    pulseOffset: 1950.0
+    pulsePeriod: 1794.6
+    nPulses: 8
+    pulseWindow: 1450
+    ToF: [0,1,2,3,4,5,6,7,8,9,10,12,14,15]
+    angles: [ 0.0,23.4,45.6,56.7,67.8,112.2,123.2,134.4,145.5,168.9,180.0,191.1,247.8,259.9,292.2,336.6]
+    baselineRegion: [0,10]
+    invert: True
+    trainStart: null
+    trainStop: null
+    trainStep: null
+    sampleShift:
+      2: -1
+      3: -2
+      4: 2
+      5: 2
+      6: 1
+      7: 1
+      8: 1
+      9: 1
+      10: 1
+      11: 2
+      12: 12
+      14: 7
+      15: 8
+
 NXSLoader:
     ToF:    [0, 1, 2,3,4, 5, 6,7, 8, 9, 10,11, 12,13,14]
     angles: [0.0,22.5,45.0,67.5,90.0,112.5,135.0,157.5,180.0,202.5,225.0,247.5,270.0,292.5,315.0]
