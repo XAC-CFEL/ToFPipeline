@@ -35,10 +35,11 @@ FlashH5Loader:
     wavelengthPath: "uncategorised/FLASH.FEL/FL2.WAVELENGTHCONTROL/FLASH2.COLOR1/WAVELENGTH"
     sampleRate: 1.8e9
     # Pulse split: start_k = round(pulseOffset + k * pulsePeriod), window of pulseWindow samples
-    pulseOffset: 1950.0
+    # (capped at floor(pulsePeriod); null = full period). The rest of each period is discarded.
+    pulseOffset: 1640.0
     pulsePeriod: 1794.6
     nPulses: 8
-    pulseWindow: 1450
+    pulseWindow: null
     ToF: [0,1,2,3,4,5,6,7,8,9,10,12,14,15]
     angles: [ 0.0,23.4,45.6,56.7,67.8,112.2,123.2,134.4,145.5,168.9,180.0,191.1,247.8,259.9,292.2,336.6]
     baselineRegion: [0,10]

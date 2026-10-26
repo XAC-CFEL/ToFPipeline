@@ -696,7 +696,9 @@ class FlashH5Loader(Loader):
     train IDs in the sibling ``index`` dataset. The run number is only encoded in the file name.
     There is no pulse ID in the file: each train trace is cut into ``nPulses`` windows of
     ``pulseWindow`` samples starting at ``round(pulseOffset + k * pulsePeriod)``. ``pulsePeriod`` may be
-    a float since the pulse spacing is not an integer number of samples.
+    a float since the pulse spacing is not an integer number of samples. The window is capped at
+    ``floor(pulsePeriod)`` so windows never overlap; ``pulseWindow: null`` keeps the full period.
+    Samples between the end of a window and the next pulse start are discarded.
 
     The result follows the common loader layout: ``self.data`` is a lazy ``DataArray`` with dims
     ``(detector, pulse, sample)``, a ``(trainId, pulseId)`` MultiIndex on ``pulse`` and a ``daq_run``
@@ -789,6 +791,22 @@ class FlashH5Loader(Loader):
                 pass
         self._handles = []
 
+    @staticmethod
+    def windowLength(pulsePeriod, pulseWindow=None, nPulses=1, nSamplesTrain=16000, warn=True):
+        """
+        Samples kept per pulse: ``pulseWindow`` capped at ``floor(pulsePeriod)`` (consecutive starts are
+        ``floor`` or ``ceil`` of the period apart, so longer windows would overlap and duplicate data).
+        ``None`` means the full period (the whole trace for a single pulse).
+        """
+        maxWindow = int(np.floor(pulsePeriod)) if nPulses > 1 and pulsePeriod > 0 else int(nSamplesTrain)
+        if pulseWindow is None:
+            return maxWindow
+        if int(pulseWindow) > maxWindow:
+            if warn:
+                print(f"Warning: pulseWindow {pulseWindow} exceeds the period; capped at {maxWindow}")
+            return maxWindow
+        return int(pulseWindow)
+
     def pulseStartIndices(self, nSamplesTrain=None, pulseOffset=None, pulsePeriod=None, nPulses=None, pulseWindow=None):
         """
         Start sample of every pulse window: ``round(pulseOffset + k * pulsePeriod)``.
@@ -802,7 +820,8 @@ class FlashH5Loader(Loader):
         pulseOffset = float(pulseOffset if pulseOffset is not None else self.config.get("pulseOffset", 0.0))
         pulsePeriod = float(pulsePeriod if pulsePeriod is not None else self.config.get("pulsePeriod", 0.0))
         nPulses = int(nPulses if nPulses is not None else self.config.get("nPulses", 1))
-        pulseWindow = int(pulseWindow if pulseWindow is not None else self.config.get("pulseWindow", nSamplesTrain))
+        pulseWindow = self.windowLength(pulsePeriod, pulseWindow if pulseWindow is not None
+                                        else self.config.get("pulseWindow"), nPulses, nSamplesTrain, warn=False)
 
         starts = np.round(pulseOffset + np.arange(nPulses) * pulsePeriod).astype(np.int64)
         valid = (starts >= 0) & (starts + pulseWindow <= nSamplesTrain)
@@ -890,7 +909,8 @@ class FlashH5Loader(Loader):
         pulseIds, starts = self.pulseStartIndices(nSamplesTrain)
         if len(starts) == 0:
             raise ValueError("No pulse window fits into the trace; check pulseOffset/pulsePeriod/pulseWindow")
-        pulseWindow = int(self.config.get("pulseWindow", nSamplesTrain))
+        pulseWindow = self.windowLength(float(self.config.get("pulsePeriod", 0.0)), self.config.get("pulseWindow"),
+                                        int(self.config.get("nPulses", 1)), nSamplesTrain)
         self.pulseStarts = pd.Series(starts, index=pulseIds, name="start sample")
 
         windows = da.stack([raw[..., s:s + pulseWindow] for s in starts], axis=2)  # (det, train, pulse, W)
