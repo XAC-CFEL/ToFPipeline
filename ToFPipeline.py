@@ -722,7 +722,12 @@ class FlashH5Loader(Loader):
 
         fullTheta = np.array(self.config.get("angles", np.linspace(0, 360, 16, endpoint=False)))
         detectors = self.config.get("ToF", list(range(16)))
-        theta = fullTheta if len(fullTheta) == len(detectors) else fullTheta[detectors]
+        if len(fullTheta) == len(detectors):
+            theta = fullTheta
+        else:
+            # A full per-channel list: keep every channel's angle, so channels outside ToF can be loaded too
+            detectors = list(range(len(fullTheta)))
+            theta = fullTheta
         self.angles = pd.DataFrame(detectors, columns=["detector"])
         self.angles["Angles"] = theta
 
