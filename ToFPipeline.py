@@ -1105,8 +1105,17 @@ class PeakFinder(Configurable):
             if nPulseStacks == 0:
                 raise ValueError("pulseStackSize larger than available pulses")
             
-            for i in range(pulseStackStart,pulseStackStop,pulseStackSize):
-                selPulseIds = uniquePulsIds[i:i+1]
+            # Average groups of pulseStackSize consecutive pulseIds within [pulseStackStart, pulseStackStop);
+            # like train stacking, an incomplete last group is dropped
+            pulseStackStop = min(pulseStackStop, len(uniquePulsIds))
+            groupStarts = list(range(pulseStackStart, pulseStackStop - pulseStackSize + 1, pulseStackSize))
+            if not groupStarts:
+                raise ValueError("pulseStackSize larger than the selected pulse range")
+            nDropped = (pulseStackStop - pulseStackStart) - len(groupStarts) * pulseStackSize
+            if nDropped > 0:
+                print(f"Pulse stacking: last {nDropped} pulse(s) do not fill a group of {pulseStackSize} and are dropped")
+            for i in groupStarts:
+                selPulseIds = uniquePulsIds[i:i+pulseStackSize]
                 pulseMask = np.isin(self.data.pulseId, selPulseIds)
                 chunk = self.data.isel(pulse=pulseMask).groupby("trainId").mean()
                 chunkPulseId = [int(selPulseIds[0])]
