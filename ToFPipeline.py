@@ -2455,6 +2455,11 @@ class Fitter(Configurable):
         if "noise amplitude" in self.results.columns:
             cols.append("noise amplitude")
         area = self.results[ self.results["peakNo"] == peakNo][cols].copy()
+        # merge_asof needs identical key dtypes: peak positions are int, a loaded calibration's are float
+        area["pos"] = area["pos"].astype(float)
+        if hasPosCalib:
+            transParam = transParam.copy()
+            transParam["pos"] = transParam["pos"].astype(float)
         if hasPhotonEnergy:
             area["Electron Energy"] = area["Photon Energy"] - Ebind
 
