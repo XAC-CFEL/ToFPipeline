@@ -218,3 +218,4 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+__pycache__/ToFPipeline.cpython-311.pyc
